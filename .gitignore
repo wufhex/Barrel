@@ -1,0 +1,13 @@
+.venv/
+.vscode/
+.idea/
+cmake-build-debug/
+cmake-build-release/
+build-debug/
+build-release/
+build/
+vendor/
+private_notes.txt
+asan.log*
+*.log
+.cache/
