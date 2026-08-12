@@ -9,8 +9,6 @@
 
 **Barrel** is a lightweight, zero-copy memory-mapped file archive and key-value store interface written in C. It relies on standard memory mapping (`mmap`) to treat files on disk as zero-overhead in-memory data structures, featuring an integrated open-addressing index, segregated-bin free list management, and user-pluggable compression.
 
----
-
 ## Key Features
 
 * **Zero-Copy Reads (`BRL_Read`)**: Direct pointer access to file payloads via OS virtual memory.
@@ -19,8 +17,6 @@
 * **Pluggable Compression**: Set custom compression and decompression callbacks (e.g., zstd, lz4, deflate) per archive instance.
 * **Compile-Time Constant Hashing**: Native C++ support for `constexpr` FNV-1a hashing and standard string literals (`"path/to/file"_BRL_Hash`).
 * **Strict Memory Alignment**: Binary structs are packed and verified with compile-time assertions for binary layout predictability.
-
----
 
 ## Core Data Structures
 
@@ -35,8 +31,6 @@ Represents individual file metadata within the index array:
 * `compressed_size`: Size on disk.
 * `allocated_size`: Total byte size of the underlying slot (allows in-place mutations).
 * `flags`: Tracks entry states (`ACTIVE`, `COMPRESSED`, `TOMBSTONE`, `FREE`).
-
----
 
 ## API Overview
 
@@ -92,8 +86,6 @@ constexpr uint64_t operator""_BRL_Hash(const char* str, std::size_t len) noexcep
 bool BRL_SetCompressor(BRL_Archive* arch, const BRL_Compressor* compressor);
 BRL_Compressor* BRL_GetDecompressor(BRL_Archive* arch);
 ```
-
----
 
 ## Error Handling
 
