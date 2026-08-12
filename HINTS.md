@@ -10,11 +10,12 @@ By adhering to standardized hints, independent tools can reliably recognize entr
 1. Fixed Length: Every individual hint identifier must be exactly 16 characters long.
     - If an identifier name is shorter than 16 characters, pad it with spaces (here shown as underscores).
     - Example: `LZ4_____`, `AES256__`, `ZSTD-L3_`.
-2. Combining Multiple Hints: When an entry undergoes multiple operations (for example, compressing before encrypting), hints are chained together sequentially using hyphens (-).
+2. Combining Multiple Hints: When an entry undergoes multiple operations (for example, compressing before encrypting), hints are chained together sequentially using dashes (`-`).
     - Syntax: `HINTONE-HINTTWO` (pad at the end if needed)
     - Order: Hints should be listed in the order the operations were applied during archive creation (or in the order they must be reversed during extraction).
 3. Levels: If the algorithm supports multiple levels of compression, include it in the name separating name and level using a dash (`-`).
     - Example: `ZSTD-L3`
+4. Use spaces instead of underscores. Underscores are used only to show the padding, a compliant hint should only use ASCII spaces as padding. 
 
 ### Compression Hints
 
