@@ -16,6 +16,7 @@ By adhering to standardized hints, independent tools can reliably recognize entr
 3. Levels: If the algorithm supports multiple levels of compression, include it in the name separating name and level using a dash (`-`).
     - Example: `ZSTD-L3`
 4. Use spaces instead of underscores. Underscores are used only to show the padding, a compliant hint should only use ASCII spaces as padding. 
+5. Always convert hints to either uppercase or lowercase to avoid a program not recognizing a format from typos like `lz4` or `Lz4`.
 
 ### Compression Hints
 
