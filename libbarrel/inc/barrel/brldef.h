@@ -54,9 +54,9 @@ typedef struct {
     uint64_t high_water_mark;   // Logical EOF offset for new appends
     uint64_t index_offset;      // Offset where the disk index array begins
     uint32_t index_capacity;    // Number of index slots allocated
-    uint32_t flags;             // Hints used by Barrel
-    char     hints[8];
-    uint8_t  reserved[16];      // Future expansion padding
+    uint32_t flags;             // Reserved for future use
+    char     hints[16];         // Hints used by programs reading archives
+    uint8_t  reserved[8];       // Reserved for future use
 } BRL_DiskHeader;
 
 typedef enum BRL_EntryFlags {
@@ -164,8 +164,8 @@ BRL_STATIC_ASSERT(offsetof(BRL_DiskHeader, index_capacity) == 32,
                   BRL_DiskHeader_index_capacity_offset);
 BRL_STATIC_ASSERT(offsetof(BRL_DiskHeader, flags) == 36,
                   BRL_DiskHeader_flags_offset);
-BRL_STATIC_ASSERT(offsetof(BRL_DiskHeader, reserved) == 48,
-                  BRL_DiskHeader_reserved_offset);
+BRL_STATIC_ASSERT(offsetof(BRL_DiskHeader, hints) == 40,
+                  BRL_DiskHeader_hints_offset);
 BRL_STATIC_ASSERT(sizeof(BRL_DiskEntry) == 48,
                   BRL_DiskEntry_size);
 BRL_STATIC_ASSERT(offsetof(BRL_DiskEntry, hash) == 0,
@@ -175,7 +175,7 @@ BRL_STATIC_ASSERT(offsetof(BRL_DiskEntry, offset) == 8,
 BRL_STATIC_ASSERT(offsetof(BRL_DiskEntry, size) == 16,
                   BRL_DiskEntry_size_offset);
 BRL_STATIC_ASSERT(offsetof(BRL_DiskEntry, compressed_size) == 24, 
-                    BRL_DiskEntry_compressed_size_offset);
+                  BRL_DiskEntry_compressed_size_offset);
 BRL_STATIC_ASSERT(offsetof(BRL_DiskEntry, allocated_size) == 32,
                   BRL_DiskEntry_allocated_size_offset);
 BRL_STATIC_ASSERT(offsetof(BRL_DiskEntry, flags) == 40,

@@ -18,6 +18,14 @@
 * **Compile-Time Constant Hashing**: Native C++ support for `constexpr` FNV-1a hashing and standard string literals (`"path/to/file"_BRL_Hash`).
 * **Strict Memory Alignment**: Binary structs are packed and verified with compile-time assertions for binary layout predictability.
 
+## Tips
+1. **Use quick compression algorithms**: I reccomend using LZ4 or ZSTD with a reasonable compression level to avoid bottlenecks.
+2. **Always set hints**: Whether you're compressing, encrypting or altering the entries format or data, always set hints when creating the archive if you care about your archive being recognizable by other programs. Check **HINTS.md** to see some standard examples.
+3. **Avoid compressing every entry**: Reserve compression to very large files, even if decompression shouldn't be noticeably slow (depending on the chosen algorithm), avoid compressing smaller files their reading quick. 
+4. **Avoid altering an entire archive**: While it might sound tempting to compress or encrypt the entire archive file, keep in mind that you'll have to pre and post process the archive before opening and after flushing it. This can become a problem with large archives and kind of defeats the purpose of a Barrel archive. Consider using the compressor interface for such operations, as it alters only the entries and reduces slowdowns as much as possible (although it heavily depends on the algorithm you're using).
+5. **Compression callbacks can be used for everything**: Unlike the name suggests, Barrel doesn't care what happens in the callbacks, they can be used for any operation like encryption/decryption or other specific purposes, **as long as you respect the signature, use `BRL_WriteEx` with `use_compression = true`, and return an `uint64_t` value. Returning `0` is interpreted by Barrel as error and will return `BRL_DECOMPRESSOR_CALLBACK_FAILED`.**
+6. **Use algorithms consistently**: As said, you can pick which chunks to alter and handle with the Compressor callbacks, `BRL_Read` can easily identify them and quickly return `BRL_REQUIRES_DECOMPRESSION` (If Tip #5 was followed correctly). Mixing algorithms for different entries can be done but requires special handling in the callbacks that Barrel doesn't natively support and that might not be natively understood by other programs (if compliant with the standard hints).
+
 ## Core Data Structures
 
 ### 1. `BRL_DiskHeader` (64 bytes)

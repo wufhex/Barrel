@@ -86,10 +86,10 @@ BRL_Compressor g_compressor = {
 int main() {
     BRL_Error err = BRL_OK;
 
-    // Hints is a 8 characters long static string useful to hint a program on how to handle a Barrel archive.
+    // Hints is a 16 characters long static string useful to hint a program on how to handle a Barrel archive.
     // In this case, it's not needed, but this string can hint another program
     // that entries are compressed using LZ4. 
-    constexpr const char* Hints = "LZ4     ";
+    constexpr const char* Hints = "LZ4             ";
     err = BRL_Create("./example.brl", Hints, BRL_DEF_INITIAL_IDX_CAPACITY_CAP);
     if (err != BRL_OK) {
         printf("Error creating archive: %d\n", (int)err);
