@@ -7,7 +7,7 @@ project(
 
 # Options
 option(BRL_BUILD_SHARED "Build libbarrel as a shared library" OFF)
-option(BRL_BUILD_CLI    "Build the barrel-cli executable"     ON)
+option(BRL_BUILD_CLI    "Build the barrel-cli executable"     OFF)
 
 # Force C99 standard
 set(CMAKE_C_STANDARD 99)
