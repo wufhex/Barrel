@@ -6,8 +6,10 @@ project(
 )
 
 # Options
-option(BRL_BUILD_SHARED "Build libbarrel as a shared library" OFF)
-option(BRL_BUILD_CLI    "Build the barrel-cli executable"     OFF)
+option(BRL_BUILD_SHARED  "Build libbarrel as a shared library"     OFF)
+option(BRL_BUILD_CLI     "Build the barrel-cli executable"         OFF)
+option(BRL_BUILD_EXAMPLE "Build the barrel example executable"     OFF)
+option(BRL_BUILD_TS      "Build the barrel test suite"             OFF)
 
 # Force C99 standard
 set(CMAKE_C_STANDARD 99)
@@ -46,4 +48,12 @@ add_subdirectory(libbarrel)
 
 if(BRL_BUILD_CLI)
     add_subdirectory(barrel-cli)
+endif()
+
+if(BRL_BUILD_EXAMPLE)
+    add_subdirectory(example)
+endif()
+
+if(BRL_BUILD_TS)
+    add_subdirectory(test_suite)
 endif()

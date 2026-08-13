@@ -36,6 +36,10 @@ BRL_EXTERN_C_START
 #define BRL_MEMCPY(dest, src, n) memcpy((dest), (src), (n))
 #endif
 
+#ifndef BRL_MEMMOVE
+#define BRL_MEMMOVE(dest, src, n) memmove((dest), (src), (n))
+#endif // BRL_MEMMOVE
+
 #ifndef BRL_MEMSET
 #define BRL_MEMSET(ptr, val, num) memset((ptr), (val), (num))
 #endif // BRL_MEMSET
