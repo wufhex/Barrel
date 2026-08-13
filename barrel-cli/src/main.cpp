@@ -89,7 +89,7 @@ int main() {
     // Hints is a 16 characters long static string useful to hint a program on how to handle a Barrel archive.
     // In this case, it's not needed, but this string can hint another program
     // that entries are compressed using LZ4. 
-    constexpr const char* Hints = "LZ4             ";
+    constexpr uint64_t Hints = 0x0000000000000002;
     constexpr uint64_t Capacity = 16 * 1024 * 1024; // 16MiB
     err = BRL_Create("./example.brl", Hints, BRL_DEF_INITIAL_IDX_CAPACITY_CAP, Capacity);
     if (err != BRL_OK) {
@@ -105,7 +105,7 @@ int main() {
         return 1;
     }
 
-    printf("Read hint: \"%s\"\n\n", arch->header->hints);
+    printf("Read hint: 0x%llX\n\n", arch->header->hints);
 
     if (!BRL_SetCompressor(arch, &g_compressor)) {
         printf("Error setting compressor.\n");

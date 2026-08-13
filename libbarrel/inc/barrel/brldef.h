@@ -1,4 +1,5 @@
 #pragma once
+
 #include "brlcompfix.h"
 #include <stdint.h>
 #include <stdbool.h>
@@ -43,16 +44,17 @@ typedef enum BRL_HeaderFlags {
 } BRL_HeaderFlags;
 
 typedef struct {
-    char     signature[2];      // 0   - "AE"
-    uint16_t version;           // 2   - Version
-    uint32_t flags;             // 4   - Header flags
-    uint64_t file_count;        // 8   - Active file count
-    uint64_t virtual_capacity;  // 16  - Total virtual address space
-    uint64_t high_water_mark;   // 24  - Logical EOF
-    uint64_t index_offset;      // 32  - Index array offset
-    uint32_t index_capacity;    // 40  - Number of index slots
-    char     hints[16];         // 44  - Reader hints
-    uint8_t  reserved[4];       // 60  - Reserved
+    char     signature[2];      // "AE"
+    uint16_t version;           // Version
+    uint32_t flags;             // Header flags
+    uint64_t file_count;        // Active file count
+    uint64_t virtual_capacity;  // Total virtual address space
+    uint64_t high_water_mark;   // Logical EOF
+    uint64_t index_offset;      // Index array offset
+    uint32_t index_capacity;    // Number of index slots
+    uint32_t reserved0;
+    uint64_t hints;             // Reader hints
+    uint8_t  reserved[8];       // Reserved
 } BRL_DiskHeader;
 
 typedef enum BRL_EntryFlags {
@@ -164,10 +166,13 @@ BRL_STATIC_ASSERT(offsetof(BRL_DiskHeader, index_offset) == 32,
 BRL_STATIC_ASSERT(offsetof(BRL_DiskHeader, index_capacity) == 40,
                   BRL_DiskHeader_index_capacity_offset);
 
-BRL_STATIC_ASSERT(offsetof(BRL_DiskHeader, hints) == 44,
+BRL_STATIC_ASSERT(offsetof(BRL_DiskHeader, reserved0) == 44,
+                  BRL_DiskHeader_reserved0_offset);
+
+BRL_STATIC_ASSERT(offsetof(BRL_DiskHeader, hints) == 48,
                   BRL_DiskHeader_hints_offset);
 
-BRL_STATIC_ASSERT(offsetof(BRL_DiskHeader, reserved) == 60,
+BRL_STATIC_ASSERT(offsetof(BRL_DiskHeader, reserved) == 56,
                   BRL_DiskHeader_reserved_offset);
 
 BRL_STATIC_ASSERT(sizeof(BRL_DiskEntry) == 48,

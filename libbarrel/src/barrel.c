@@ -50,7 +50,7 @@ static const char* const __g_BRL_ErrorString[] = {
     "Unknown error. I don't even know how you got this error :P" // BRL_UNKNOWN 
 };
 
-BRL_Error BRL_Create(const char* filepath, const char* hints, uint64_t initial_index_capacity, uint64_t max_virtual_capacity) {
+BRL_Error BRL_Create(const char* filepath, uint64_t hints, uint64_t initial_index_capacity, uint64_t max_virtual_capacity) {
     uint64_t cap = BRL_DEF_INITIAL_IDX_CAPACITY_CAP; 
     while (cap < initial_index_capacity) {
         if (cap > UINT64_MAX / 2) return BRL_INVALID_PARAM;
@@ -73,14 +73,7 @@ BRL_Error BRL_Create(const char* filepath, const char* hints, uint64_t initial_i
     hdr.index_offset     = sizeof(BRL_DiskHeader);
     hdr.index_capacity   = (uint32_t)cap;
     hdr.high_water_mark  = sizeof(BRL_DiskHeader) + (cap * sizeof(BRL_DiskEntry));
-
-    if (hints != NULL) {
-        for (int i = 0; i < sizeof(hdr.hints); i++) {
-            hdr.hints[i] = hints[i];
-            if (hints[i] == '\0') break;
-        }
-        hdr.hints[sizeof(hdr.hints) - 1] = '\0';
-    }
+    hdr.hints            = hints;
 
     uint64_t out_size = 0;
     if (!BRL_FWRITE(fd, &hdr, sizeof(hdr), &out_size) || out_size != sizeof(hdr)) {
