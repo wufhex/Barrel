@@ -50,7 +50,7 @@ static const char* const __g_BRL_ErrorString[] = {
     "Unknown error. I don't even know how you got this error :P" // BRL_UNKNOWN 
 };
 
-BRL_Error BRL_Create(const char* filepath, const char* hints, uint64_t initial_index_capacity) {
+BRL_Error BRL_Create(const char* filepath, const char* hints, uint64_t initial_index_capacity, uint64_t max_virtual_capacity) {
     uint64_t cap = BRL_DEF_INITIAL_IDX_CAPACITY_CAP; 
     while (cap < initial_index_capacity) {
         if (cap > UINT64_MAX / 2) return BRL_INVALID_PARAM;
@@ -69,7 +69,7 @@ BRL_Error BRL_Create(const char* filepath, const char* hints, uint64_t initial_i
     hdr.signature[1]     = BRL_SIGNATURE_1;
     hdr.version          = BRL_VERSION;
     hdr.file_count       = 0;
-    hdr.virtual_capacity = BRL_MAX_VIRT_CAP;
+    hdr.virtual_capacity = max_virtual_capacity;
     hdr.index_offset     = sizeof(BRL_DiskHeader);
     hdr.index_capacity   = (uint32_t)cap;
     hdr.high_water_mark  = sizeof(BRL_DiskHeader) + (cap * sizeof(BRL_DiskEntry));
@@ -130,6 +130,10 @@ BRL_Error BRL_Open(const char* filepath, BRL_Archive** out_arch) {
         BRL_FCLOSE(fd);
         return BRL_INVALID_IDX_OFFSET;
     }
+    if (temp_hdr.high_water_mark > file_size) {
+        BRL_FCLOSE(fd);
+        return BRL_HI_WATER_MARK_MORE_THAN_FILE_SIZE;
+    }
 
     // Index Math Verification
     uint64_t index_bytes = (uint64_t)temp_hdr.index_capacity * sizeof(BRL_DiskEntry);
@@ -153,10 +157,6 @@ BRL_Error BRL_Open(const char* filepath, BRL_Archive** out_arch) {
     if (temp_hdr.high_water_mark > temp_hdr.virtual_capacity) {
         BRL_FCLOSE(fd);
         return BRL_HI_WATER_MARK_MORE_THAN_VIRTUAL_CAPACITY;
-    }
-    if (temp_hdr.virtual_capacity > BRL_MAX_VIRT_CAP) {
-        BRL_FCLOSE(fd);
-        return BRL_VIRTUAL_CAPACITY_MORE_THAN_MAX;
     }
 
     uint8_t* mapped = NULL;

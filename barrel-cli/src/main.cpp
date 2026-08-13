@@ -7,7 +7,7 @@
 
 #include <lz4.h>
 
-constexpr int INT_MAX = std::numeric_limits<int>::max();
+constexpr int BRL_INT_MAX = std::numeric_limits<int>::max();
 
 typedef struct DummyData {
     int    id;
@@ -24,7 +24,7 @@ uint64_t Test_CompressFunc(
 ) {
     (void)user_data;
 
-    if (src_size > INT_MAX || dst_capacity > INT_MAX) {
+    if (src_size > BRL_INT_MAX || dst_capacity > BRL_INT_MAX) {
         return 0;
     }
 
@@ -51,7 +51,7 @@ uint64_t Test_DecompressFunc(
 ) {
     (void)user_data;
 
-    if (src_size > INT_MAX || dst_capacity > INT_MAX) {
+    if (src_size > BRL_INT_MAX || dst_capacity > BRL_INT_MAX) {
         return 0;
     }
 
@@ -71,7 +71,7 @@ uint64_t Test_DecompressFunc(
 
 uint64_t Test_GetBoundFunc(uint64_t src_size, void* user_data) {
     (void)user_data;
-    if (src_size > INT_MAX) return 0;
+    if (src_size > BRL_INT_MAX) return 0;
     return (uint64_t)LZ4_compressBound((int)src_size);
 }
 
@@ -90,7 +90,8 @@ int main() {
     // In this case, it's not needed, but this string can hint another program
     // that entries are compressed using LZ4. 
     constexpr const char* Hints = "LZ4             ";
-    err = BRL_Create("./example.brl", Hints, BRL_DEF_INITIAL_IDX_CAPACITY_CAP);
+    constexpr uint64_t Capacity = 16 * 1024 * 1024; // 16MiB
+    err = BRL_Create("./example.brl", Hints, BRL_DEF_INITIAL_IDX_CAPACITY_CAP, Capacity);
     if (err != BRL_OK) {
         printf("Error creating archive: %d\n", (int)err);
         return 1;

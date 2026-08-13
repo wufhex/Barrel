@@ -9,6 +9,12 @@
 
 **Barrel** is a lightweight, zero-copy memory-mapped file archive and key-value store interface written in C. It relies on standard memory mapping (`mmap`) to treat files on disk as zero-overhead in-memory data structures, featuring an integrated open-addressing index, segregated-bin free list management, and user-pluggable compression.
 
+Barrel archives are created with a predefined virtual capacity, this can be any uint64 number of bytes, but choosing a size larger than 1 TiB isn't recommended. If an archive requires more than that, creating multiple archives is heavily encoraged. 
+
+Choosing a large capacity won't allocate the entire archive at once since memory mapping is used, so a large capacity value won't present problems and can also be beneficial if the final size isn't know at creation time. 
+
+Archives could also be expanded manually after creation, although it might take long for large archives and can corrupt the archive or the data in it if done improperly. **The Barrel API doesn't currently support expansion, but it's a planned feature.**
+
 ## Key Features
 
 * **Zero-Copy Reads (`BRL_Read`)**: Direct pointer access to file payloads via OS virtual memory.
@@ -45,7 +51,9 @@ Represents individual file metadata within the index array:
 ### Archive Lifecycle
 ```c
 // Create a new archive on disk
-BRL_Error BRL_Create(const char* filepath, const char* hints, uint64_t initial_index_capacity);
+BRL_Error BRL_Create(const char* filepath, const char* hints, uint64_t initial_index_capacity, uint64_t max_virtual_capacity);
+// Common defaults
+initial_index_capacity = BRL_DEF_INITIAL_IDX_CAPACITY_CAP
 
 // Open and memory-map an existing archive
 BRL_Error BRL_Open(const char* filepath, BRL_Archive** out_arch);
