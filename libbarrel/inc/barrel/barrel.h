@@ -48,8 +48,8 @@ typedef enum BRL_Error {
 // Creates a new empty Barrel file on disk
 BRL_Error       BRLAPI BRL_Create(const char* filepath, uint64_t hints, uint64_t initial_index_capacity, uint64_t max_virtual_capacity);
 
-// Opens and mmaps a Barrel file, building in-memory O(1) structures
-BRL_Error       BRLAPI BRL_Open(const char* filepath, BRL_Archive** out_arch);
+// Opens and mmaps a Barrel file
+BRL_Error       BRLAPI BRL_Open(const char* filepath, uint32_t open_flags, BRL_Archive** out_arch);
 
 // Flushes changes and unmaps the archive
 BRL_Error       BRLAPI BRL_Close(BRL_Archive* arch);

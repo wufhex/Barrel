@@ -101,7 +101,8 @@ int main() {
 
     BRL_Archive* arch = NULL;
 
-    err = BRL_Open("./example.brl", &arch);
+    constexpr uint32_t OpenFlags = BRL_OPEN_NORMAL;
+    err = BRL_Open("./example.brl", OpenFlags, &arch);
     if (err != BRL_OK) {
         printf("Error opening archive: %d\n", (int)err);
         return 1;

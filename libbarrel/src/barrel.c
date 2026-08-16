@@ -13,6 +13,12 @@ static void     BRL_FreeArchive(BRL_Archive* arch);
 static void     BRL_MarkDirty(BRL_Archive* arch, uint64_t offset, uint64_t size);
 static void     BRL_MarkIndexDirty(BRL_Archive* arch, uint32_t idx);
 
+static BRL_CacheNode* BRL_LRU_Get(BRL_DataLRU* lru, uint64_t hash);
+static void           BRL_LRU_Touch(BRL_DataLRU* lru, BRL_CacheNode* node);
+static void           BRL_LRU_Remove(BRL_DataLRU* lru, uint64_t hash);
+static void           BRL_LRU_EvictUntilFits(BRL_DataLRU* lru, uint64_t required_bytes);
+bool                  BRL_LRU_Put(BRL_DataLRU* lru, uint64_t hash, const void* data, uint64_t size);
+
 BRL_Error BRL_Create(const char* filepath, uint64_t hints, uint64_t initial_index_capacity, uint64_t max_virtual_capacity) {
     uint64_t cap = (initial_index_capacity == 0) ? BRL_DEF_INITIAL_IDX_CAPACITY_CAP : 2;
     while (cap < initial_index_capacity) {
@@ -55,7 +61,7 @@ BRL_Error BRL_Create(const char* filepath, uint64_t hints, uint64_t initial_inde
     return BRL_OK;
 }
 
-BRL_Error BRL_Open(const char* filepath, BRL_Archive** out_arch) {
+BRL_Error BRL_Open(const char* filepath, uint32_t open_flags, BRL_Archive** out_arch) {
     int fd = BRL_FOPEN(filepath);
     if (BRL_IS_INVALID_FD(fd)) return BRL_INVALID_FD;
 
@@ -112,7 +118,18 @@ BRL_Error BRL_Open(const char* filepath, BRL_Archive** out_arch) {
     
     // Resolve SoA Pointers
     arch->hashes   = (uint64_t*)(mapped + arch->header->index_offset);
-    arch->metadata = (BRL_EntryMeta*)(mapped + arch->header->index_offset + (arch->index_capacity * sizeof(uint64_t)));
+    arch->metadata = (BRL_EntryMeta*)(mapped + arch->header->index_offset 
+        + (arch->index_capacity * sizeof(uint64_t)));
+
+    if (open_flags & BRL_OPEN_ENABLE_COMPRESSOR_LRU_CACHE) {
+        arch->compressor_lru.capacity = arch->index_capacity;
+        arch->compressor_lru.hash_table = BRL_CALLOC(arch->compressor_lru.capacity, sizeof(BRL_CacheNode*));
+        if (!arch->compressor_lru.hash_table) {
+            BRL_FreeArchive(arch);
+            return BRL_ALLOC_FAIL;
+        }
+        arch->compressor_lru.max_memory_bytes = BRL_COMPRESSOR_LRU_MAX_BYTES;
+    }
 
     // Scan tombstones once to build free list bins
     for (uint32_t i = 0; i < arch->index_capacity; i++) {
@@ -123,6 +140,8 @@ BRL_Error BRL_Open(const char* filepath, BRL_Archive** out_arch) {
             }
         }
     }
+
+    arch->open_flags = open_flags;
 
     *out_arch = arch;
     return BRL_OK;
@@ -161,6 +180,17 @@ BRL_Error BRL_Read(BRL_Archive* arch, uint64_t hash, const uint8_t** out_data, u
 BRL_Error BRL_ReadCopy(BRL_Archive* arch, uint64_t hash, void* dst_buffer, uint64_t dst_capacity, uint64_t* out_written_size) {
     if (!arch || !dst_buffer) return BRL_INVALID_PARAM;
 
+    // Check LRU cache 
+    if (arch->open_flags & BRL_OPEN_ENABLE_COMPRESSOR_LRU_CACHE) {
+        BRL_CacheNode* cached = BRL_LRU_Get(&arch->compressor_lru, hash);
+        if (cached) {
+            if (dst_capacity < cached->size) return BRL_BUFFER_TOO_SMALL;
+            BRL_MEMCPY(dst_buffer, cached->data, cached->size);
+            if (out_written_size) *out_written_size = cached->size;
+            return BRL_OK;
+        }
+    }
+
     uint32_t idx = BRL_HashFind(arch, hash);
     if (idx == UINT32_MAX) return BRL_ENTRY_NOT_FOUND;
 
@@ -179,6 +209,12 @@ BRL_Error BRL_ReadCopy(BRL_Archive* arch, uint64_t hash, void* dst_buffer, uint6
         
         uint64_t decomp_written = arch->compressor.decompress(src_ptr, meta->compressed_size, dst_buffer, dst_capacity, hash, arch->compressor.user_data);
         if (decomp_written != meta->size) return BRL_DECOMPRESSOR_CALLBACK_FAILED;
+
+        // Cache decompressed data
+        if (arch->open_flags & BRL_OPEN_ENABLE_COMPRESSOR_LRU_CACHE) {
+            BRL_LRU_Put(&arch->compressor_lru, hash, dst_buffer, decomp_written);
+        }
+
         if (out_written_size) *out_written_size = decomp_written;
         return BRL_OK;
     }
@@ -198,7 +234,10 @@ BRL_Error BRL_WriteEx(BRL_Archive* arch, uint64_t hash, const void* data, uint64
 
     // Use internal arena for compression
     if (size > 0 && use_compressor && arch->compressor.valid && arch->compressor.compress) {
-        uint64_t max_comp = arch->compressor.get_bound ? arch->compressor.get_bound(size, arch->compressor.user_data) : (size + (size / 8) + 256);
+        uint64_t max_comp = arch->compressor.get_bound ? 
+            arch->compressor.get_bound(size, 
+                arch->compressor.user_data) : 
+            (size + (size / 8) + 256);
         
         if (arch->comp_capacity < max_comp) {
             void* new_buf = BRL_REALLOC(arch->comp_buffer, max_comp);
@@ -207,7 +246,8 @@ BRL_Error BRL_WriteEx(BRL_Archive* arch, uint64_t hash, const void* data, uint64
             arch->comp_capacity = max_comp;
         }
 
-        uint64_t comp_size = arch->compressor.compress(data, size, arch->comp_buffer, arch->comp_capacity, hash, arch->compressor.user_data);
+        uint64_t comp_size = arch->compressor.compress(data, size, arch->comp_buffer, 
+            arch->comp_capacity, hash, arch->compressor.user_data);
         if (comp_size > 0 && comp_size < size) {
             payload_ptr = arch->comp_buffer;
             disk_write_size = comp_size;
@@ -240,6 +280,11 @@ BRL_Error BRL_WriteEx(BRL_Archive* arch, uint64_t hash, const void* data, uint64
         meta->flags           = is_compressed ? BRL_ENTRY_COMPRESSED : BRL_ENTRY_ACTIVE;
         
         BRL_MarkIndexDirty(arch, idx);
+        
+        if (arch->open_flags & BRL_OPEN_ENABLE_COMPRESSOR_LRU_CACHE) {
+            BRL_LRU_Put(&arch->compressor_lru, hash, data, size);
+        }
+
         return BRL_OK;
     }
 
@@ -311,6 +356,10 @@ BRL_Error BRL_WriteEx(BRL_Archive* arch, uint64_t hash, const void* data, uint64
 #endif
     }
 
+    if (arch->open_flags & BRL_OPEN_ENABLE_COMPRESSOR_LRU_CACHE) {
+        BRL_LRU_Put(&arch->compressor_lru, hash, data, size);
+    }
+
     return BRL_OK;
 }
 
@@ -338,6 +387,10 @@ BRL_Error BRL_Delete(BRL_Archive* arch, uint64_t hash) {
 
     BRL_MarkDirty(arch, 0, sizeof(BRL_DiskHeader));
     BRL_MarkIndexDirty(arch, idx);
+
+    if (arch->open_flags & BRL_OPEN_ENABLE_COMPRESSOR_LRU_CACHE) {
+        BRL_LRU_Remove(&arch->compressor_lru, hash);
+    }
 
     return BRL_OK;
 }
@@ -520,4 +573,124 @@ static void BRL_FreeArchive(BRL_Archive* arch) {
     if (arch->comp_buffer) BRL_FREE(arch->comp_buffer);
 
     BRL_FREE(arch);
+}
+
+static BRL_CacheNode* BRL_LRU_Get(BRL_DataLRU* lru, uint64_t hash) {
+    if (!lru || !lru->hash_table || lru->capacity == 0) return NULL;
+    uint32_t mask = lru->capacity - 1;
+    uint32_t idx = (uint32_t)(hash & mask);
+
+    for (uint32_t i = 0; i < lru->capacity; i++) {
+        BRL_CacheNode* node = lru->hash_table[idx];
+        if (!node) return NULL;
+        if (node->hash == hash) {
+            BRL_LRU_Touch(lru, node);
+            return node;
+        }
+        idx = (idx + 1) & mask;
+    }
+    return NULL;
+}
+
+static void BRL_LRU_Touch(BRL_DataLRU* lru, BRL_CacheNode* node) {
+    if (lru->head == node) return;
+
+    // Unlink
+    if (node->prev) node->prev->next = node->next;
+    if (node->next) node->next->prev = node->prev;
+    if (lru->tail == node) lru->tail = node->prev;
+
+    // Relink to head
+    node->next = lru->head;
+    node->prev = NULL;
+    if (lru->head) lru->head->prev = node;
+    lru->head = node;
+    if (!lru->tail) lru->tail = node;
+}
+
+static void BRL_LRU_Remove(BRL_DataLRU* lru, uint64_t hash) {
+    if (!lru || !lru->hash_table || lru->capacity == 0) return;
+    uint32_t mask = lru->capacity - 1;
+    uint32_t i = (uint32_t)(hash & mask);
+
+    for (uint32_t probe = 0; probe < lru->capacity; probe++) {
+        if (lru->hash_table[i] == NULL) return;
+        if (lru->hash_table[i]->hash == hash) {
+            BRL_CacheNode* node = lru->hash_table[i];
+
+            // Unlink from list
+            if (node->prev) node->prev->next = node->next;
+            if (node->next) node->next->prev = node->prev;
+            if (lru->head == node) lru->head = node->next;
+            if (lru->tail == node) lru->tail = node->prev;
+
+            lru->current_bytes -= node->size;
+            BRL_FREE(node->data);
+            BRL_FREE(node);
+
+            // Backward shift deletion to maintain open-address probing invariant
+            lru->hash_table[i] = NULL;
+            uint32_t j = i;
+            while (1) {
+                j = (j + 1) & mask;
+                if (lru->hash_table[j] == NULL) break;
+                uint32_t k = (uint32_t)(lru->hash_table[j]->hash & mask);
+                if ((i <= j) ? (i < k && k <= j) : (i < k || k <= j)) continue;
+                lru->hash_table[i] = lru->hash_table[j];
+                lru->hash_table[j] = NULL;
+                i = j;
+            }
+            return;
+        }
+        i = (i + 1) & mask;
+    }
+}
+
+static void BRL_LRU_EvictUntilFits(BRL_DataLRU* lru, uint64_t required_bytes) {
+    while (lru->tail && (lru->current_bytes + required_bytes > lru->max_memory_bytes)) {
+        BRL_LRU_Remove(lru, lru->tail->hash);
+    }
+}
+
+bool BRL_LRU_Put(BRL_DataLRU* lru, uint64_t hash, const void* data, uint64_t size) {
+    if (!lru || !lru->hash_table || lru->max_memory_bytes == 0 || size == 0) return false;
+    
+    // Ignore items larger than 25% of total capacity limit
+    if (size > (lru->max_memory_bytes / 4)) return false;
+
+    // Remove old entry if it already exists
+    BRL_LRU_Remove(lru, hash);
+
+    // Evict space if needed
+    BRL_LRU_EvictUntilFits(lru, size);
+
+    BRL_CacheNode* node = BRL_CALLOC(1, sizeof(BRL_CacheNode));
+    if (!node) return false;
+
+    node->data = BRL_MALLOC(size);
+    if (!node->data) {
+        BRL_FREE(node);
+        return false;
+    }
+
+    BRL_MEMCPY(node->data, data, size);
+    node->size = size;
+    node->hash = hash;
+
+    // Open Addressing linear probing insertion
+    uint32_t mask = lru->capacity - 1;
+    uint32_t idx = (uint32_t)(hash & mask);
+    while (lru->hash_table[idx] != NULL) {
+        idx = (idx + 1) & mask;
+    }
+    lru->hash_table[idx] = node;
+
+    // Prepend to MRU
+    node->next = lru->head;
+    if (lru->head) lru->head->prev = node;
+    lru->head = node;
+    if (!lru->tail) lru->tail = node;
+
+    lru->current_bytes += size;
+    return true;
 }

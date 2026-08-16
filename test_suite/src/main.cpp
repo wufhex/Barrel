@@ -1,4 +1,5 @@
 #include "barrel/barrel.h"
+#include "barrel/brldef.h"
 
 #include <iostream>
 #include <vector>
@@ -10,7 +11,11 @@
 #include <chrono>
 #include <limits>
 #include <filesystem>
+#include <algorithm>
 #include <lz4.h>
+
+constexpr uint32_t OpenFlagNormal            = BRL_OPEN_NORMAL;
+constexpr uint32_t OpenFlagWithCompressorLRU = BRL_OPEN_NORMAL | BRL_OPEN_ENABLE_COMPRESSOR_LRU_CACHE;
 
 #define TEST_ASSERT(cond, msg) \
     do { \
@@ -34,13 +39,16 @@
 
 constexpr int BRL_INT_MAX = std::numeric_limits<int>::max();
 
-static uint64_t LZ4_CompressWrapper(const void* src, uint64_t src_sz, void* dst, uint64_t dst_cap, void*) {
+static uint64_t LZ4_CompressWrapper(const void* src, uint64_t src_sz, void* dst, uint64_t dst_cap, uint64_t, void*) {
     if (src_sz > BRL_INT_MAX || dst_cap > BRL_INT_MAX) return 0;
     int res = LZ4_compress_default((const char*)src, (char*)dst, (int)src_sz, (int)dst_cap);
     return res <= 0 ? 0 : (uint64_t)res;
 }
 
-static uint64_t LZ4_DecompressWrapper(const void* src, uint64_t src_sz, void* dst, uint64_t dst_cap, void*) {
+int g_DecompressionAmount = 0;
+
+static uint64_t LZ4_DecompressWrapper(const void* src, uint64_t src_sz, void* dst, uint64_t dst_cap, uint64_t, void*) {
+    g_DecompressionAmount++;
     if (src_sz > BRL_INT_MAX || dst_cap > BRL_INT_MAX) return 0;
     int res = LZ4_decompress_safe((const char*)src, (char*)dst, (int)src_sz, (int)dst_cap);
     return res < 0 ? 0 : (uint64_t)res;
@@ -69,7 +77,7 @@ bool Test_EdgeCases() {
     BRL_Create(path, 0, 256, 16 * 1024 * 1024);
 
     BRL_Archive* arch = nullptr;
-    TEST_ASSERT(BRL_Open(path, &arch) == BRL_OK, "Failed to open archive.");
+    TEST_ASSERT(BRL_Open(path, OpenFlagNormal, &arch) == BRL_OK, "Failed to open archive.");
 
     // A. Reserved Hashes (0 = EMPTY, 1 = TOMBSTONE)
     uint8_t dummy[8] = {1, 2, 3, 4, 5, 6, 7, 8};
@@ -111,7 +119,7 @@ bool Test_SlotExhaustion() {
     BRL_Create(path, 0, 16, 1024 * 1024);
 
     BRL_Archive* arch = nullptr;
-    TEST_ASSERT(BRL_Open(path, &arch) == BRL_OK, "Failed to open archive.");
+    TEST_ASSERT(BRL_Open(path, OpenFlagNormal, &arch) == BRL_OK, "Failed to open archive.");
 
     uint8_t val = 0xAB;
     // Fill all 16 hash slots
@@ -138,7 +146,7 @@ bool Test_FragmentationAndRecycling() {
     BRL_Create(path, 0, 1024, 64 * 1024 * 1024);
 
     BRL_Archive* arch = nullptr;
-    TEST_ASSERT(BRL_Open(path, &arch) == BRL_OK, "Failed to open archive.");
+    TEST_ASSERT(BRL_Open(path, OpenFlagNormal, &arch) == BRL_OK, "Failed to open archive.");
 
     constexpr size_t ENTRY_SIZE = 4096; // 4KB
     constexpr size_t NUM_ENTRIES = 100;
@@ -175,7 +183,7 @@ bool Test_FuzzingAndCorruption() {
 
     // Fill archive with valid data first
     BRL_Archive* arch = nullptr;
-    BRL_Open(path, &arch);
+    BRL_Open(path, OpenFlagNormal, &arch);
     std::vector<uint8_t> buf = GenerateRandomBuffer(512, 99);
     for (int i = 0; i < 10; ++i) BRL_Write(arch, 500 + i, buf.data(), buf.size());
     BRL_Close(arch);
@@ -184,7 +192,7 @@ bool Test_FuzzingAndCorruption() {
     {
         std::filesystem::resize_file(path, 10); // Physically truncates file to 10 bytes
     }
-    TEST_ASSERT(BRL_Open(path, &arch) == BRL_INVALID_FILE_SIZE, "Opened truncated file without error");
+    TEST_ASSERT(BRL_Open(path, OpenFlagNormal, &arch) == BRL_INVALID_FILE_SIZE, "Opened truncated file without error");
    
     // Re-create valid file
     BRL_Create(path, 0, 256, 16 * 1024 * 1024);
@@ -195,7 +203,7 @@ bool Test_FuzzingAndCorruption() {
         f.seekp(0);
         f.write("XX", 2); // Overwrite 'AE'
     }
-    TEST_ASSERT(BRL_Open(path, &arch) == BRL_INVALID_MAGIC, "Opened archive with corrupted magic bytes");
+    TEST_ASSERT(BRL_Open(path, OpenFlagNormal, &arch) == BRL_INVALID_MAGIC, "Opened archive with corrupted magic bytes");
 
     // C. Corrupt Index Capacity (Non-Power of 2)
     {
@@ -207,7 +215,7 @@ bool Test_FuzzingAndCorruption() {
         f.seekp(40);
         f.write(reinterpret_cast<const char*>(&invalid_cap), sizeof(invalid_cap));
     }
-    TEST_ASSERT(BRL_Open(path, &arch) == BRL_INVALID_IDX_CAPACITY, "Opened archive with invalid index capacity");
+    TEST_ASSERT(BRL_Open(path, OpenFlagNormal, &arch) == BRL_INVALID_IDX_CAPACITY, "Opened archive with invalid index capacity");
 
     return true;
 }
@@ -218,7 +226,7 @@ bool Test_DifferentialStress() {
     BRL_Create(path, 0, 2048, VIRTUAL_CAP);
 
     BRL_Archive* arch = nullptr;
-    TEST_ASSERT(BRL_Open(path, &arch) == BRL_OK, "Failed to open stress test archive");
+    TEST_ASSERT(BRL_Open(path, OpenFlagNormal, &arch) == BRL_OK, "Failed to open stress test archive");
     BRL_SetCompressor(arch, &g_test_compressor);
 
     std::unordered_map<uint64_t, std::vector<uint8_t>> ground_truth;
@@ -292,7 +300,7 @@ bool Test_DifferentialStress() {
     BRL_Close(arch);
 
     // Reopen and check if all ground truth data persisted correctly across closing/opening
-    TEST_ASSERT(BRL_Open(path, &arch) == BRL_OK, "Failed to reopen archive after stress test");
+    TEST_ASSERT(BRL_Open(path, OpenFlagNormal, &arch) == BRL_OK, "Failed to reopen archive after stress test");
     BRL_SetCompressor(arch, &g_test_compressor);
 
     for (const auto& [hash, expected] : ground_truth) {
@@ -334,7 +342,7 @@ bool Test_Benchmark() {
     // BRL_Open
     BRL_Archive* arch = nullptr;
     err = measure("BRL_Open", [&]() {
-        return BRL_Open("./example.brl", &arch);
+        return BRL_Open("./example.brl", OpenFlagNormal, &arch);
     });
     if (err != BRL_OK || !arch) return false;
 
@@ -410,7 +418,535 @@ bool Test_Benchmark() {
 
     printf("-----------------------------------------------------------------\n");
     printf("%-40s | %9.2f ms\n", "TOTAL BENCHMARK TIME", total_ms);
-    printf("-----------------------------------------------------------------\n\n");
+    printf("-----------------------------------------------------------------\n");
+
+    return true;
+}
+
+bool Test_CompressorDecompressorLRU() {
+    using Clock = std::chrono::high_resolution_clock;
+
+    const char* path = "./test_compressor_lru.brl";
+
+    constexpr uint64_t VIRTUAL_CAP = 512ULL * 1024 * 1024;
+    constexpr size_t ENTRY_COUNT = 5;
+    constexpr size_t ENTRY_SIZE = 10ULL * 1024 * 1024; // 10 MiB each
+    constexpr int ROUNDS = 20;
+
+    std::cout << "\n";
+    std::cout << "  Compressor + Decompressor + LRU stress:\n";
+    std::cout << "    Entries : " << ENTRY_COUNT << "\n";
+    std::cout << "    Size    : " << ENTRY_SIZE / (1024 * 1024) << " MiB each\n";
+    std::cout << "    Total   : "
+              << (ENTRY_COUNT * ENTRY_SIZE) / (1024 * 1024) << " MiB\n";
+    std::cout << "    Rounds  : " << ROUNDS << "\n";
+
+    std::error_code ec;
+    std::filesystem::remove(path, ec);
+
+    g_DecompressionAmount = 0;
+
+    TEST_ASSERT(
+        BRL_Create(path, 0, 1024, VIRTUAL_CAP) == BRL_OK,
+        "Failed to create compressor/LRU test archive"
+    );
+
+    BRL_Archive* arch = nullptr;
+
+    TEST_ASSERT(
+        BRL_Open(path, OpenFlagWithCompressorLRU, &arch) == BRL_OK,
+        "Failed to open compressor/LRU test archive"
+    );
+
+    TEST_ASSERT(
+        BRL_SetCompressor(arch, &g_test_compressor),
+        "Failed to install LZ4 compressor"
+    );
+
+    struct TestEntry {
+        uint64_t hash;
+        std::vector<uint8_t> data;
+    };
+
+    std::vector<TestEntry> entries;
+    entries.reserve(ENTRY_COUNT);
+
+    // Generate several different highly-compressible 10 MiB payloads.
+    // Each entry is different, so the test cannot accidentally pass because
+    // all entries contain the same data.
+
+    for (size_t i = 0; i < ENTRY_COUNT; ++i) {
+        TestEntry entry;
+
+        char name[64];
+        std::snprintf(name, sizeof(name), "LRU_50MB_ENTRY_%zu", i);
+
+        entry.hash = BRL_HashString(name);
+        entry.data.resize(ENTRY_SIZE);
+
+        // Different deterministic patterns for each entry.
+        // Still highly compressible by LZ4.
+        const uint32_t seed = static_cast<uint32_t>(0x12340000u + i * 0x1111u);
+
+        for (size_t j = 0; j < ENTRY_SIZE; ++j) {
+            uint32_t value =
+                seed ^
+                static_cast<uint32_t>((j / 4096) * 2654435761u);
+
+            entry.data[j] = static_cast<uint8_t>(
+                (value >> ((j / 1024) & 3) * 8) & 0xFF
+            );
+        }
+
+        entries.push_back(std::move(entry));
+    }
+
+    // Write all entries compressed.
+    //
+    // Total logical data = 50 MiB.
+
+    auto write_start = Clock::now();
+
+    for (size_t i = 0; i < entries.size(); ++i) {
+        BRL_Error err = BRL_WriteEx(
+            arch,
+            entries[i].hash,
+            entries[i].data.data(),
+            entries[i].data.size(),
+            true
+        );
+
+        TEST_ASSERT(
+            err == BRL_OK,
+            "Compressed write failed"
+        );
+
+        const uint32_t idx = [&]() -> uint32_t {
+            uint32_t mask = arch->index_capacity - 1;
+            uint32_t probe = static_cast<uint32_t>(entries[i].hash & mask);
+
+            for (uint32_t n = 0; n < arch->index_capacity; ++n) {
+                if (arch->hashes[probe] == entries[i].hash)
+                    return probe;
+
+                probe = (probe + 1) & mask;
+            }
+
+            return UINT32_MAX;
+        }();
+
+        TEST_ASSERT(idx != UINT32_MAX, "Written entry disappeared from index");
+
+        TEST_ASSERT(
+            (arch->metadata[idx].flags & BRL_ENTRY_COMPRESSED) != 0,
+            "Entry was not stored compressed"
+        );
+
+        TEST_ASSERT(
+            arch->metadata[idx].compressed_size < arch->metadata[idx].size,
+            "LZ4 failed to actually compress test data"
+        );
+    }
+
+    auto write_end = Clock::now();
+
+    const double write_ms =
+        std::chrono::duration<double, std::milli>(
+            write_end - write_start
+        ).count();
+
+    std::cout
+        << "    Initial compressed write: "
+        << write_ms << " ms\n";
+
+    // First pass:
+    //
+    // Every entry must actually decompress correctly.
+    //
+    // This populates the decompressed-data LRU.
+
+    std::vector<uint8_t> output(ENTRY_SIZE);
+
+    for (size_t i = 0; i < entries.size(); ++i) {
+        uint64_t written = 0;
+
+        BRL_Error err = BRL_ReadCopy(
+            arch,
+            entries[i].hash,
+            output.data(),
+            output.size(),
+            &written
+        );
+
+        TEST_ASSERT(
+            err == BRL_OK,
+            "Initial decompression failed"
+        );
+
+        TEST_ASSERT(
+            written == entries[i].data.size(),
+            "Initial decompression size mismatch"
+        );
+
+        TEST_ASSERT(
+            std::memcmp(
+                output.data(),
+                entries[i].data.data(),
+                entries[i].data.size()
+            ) == 0,
+            "Initial decompression data mismatch"
+        );
+    }
+
+    // Verify the LRU actually contains data.
+    //
+    // current_bytes is intentionally inspected because this is a test
+    // compiled against the internal BRL_Archive definition.
+
+    TEST_ASSERT(
+        arch->compressor_lru.current_bytes > 0,
+        "Decompressed-data LRU was not populated"
+    );
+
+    std::cout
+        << "    LRU after first pass: "
+        << arch->compressor_lru.current_bytes / (1024 * 1024)
+        << " MiB\n";
+
+    // Repeated mixed-access workload.
+    //
+    // Each round accesses all entries in a different order. This exercises:
+    //
+    //   - decompression
+    //   - LRU insertion
+    //   - LRU lookup
+    //   - LRU touch / MRU promotion
+    //   - eviction
+    //   - repeated decompression after eviction
+    //
+    // We intentionally don't access entries in the same order every time.
+
+    std::mt19937 rng(0xBADC0DE);
+
+    uint64_t total_reads = 0;
+    uint64_t total_bytes = 0;
+
+    auto stress_start = Clock::now();
+
+    for (int round = 0; round < ROUNDS; ++round) {
+        std::vector<size_t> order(ENTRY_COUNT);
+
+        for (size_t i = 0; i < ENTRY_COUNT; ++i)
+            order[i] = i;
+
+        std::shuffle(order.begin(), order.end(), rng);
+
+        for (size_t access = 0; access < order.size(); ++access) {
+            const size_t entry_idx = order[access];
+            const TestEntry& entry = entries[entry_idx];
+
+            uint64_t written = 0;
+
+            BRL_Error err = BRL_ReadCopy(
+                arch,
+                entry.hash,
+                output.data(),
+                output.size(),
+                &written
+            );
+
+            TEST_ASSERT(
+                err == BRL_OK,
+                "Mixed LRU ReadCopy failed"
+            );
+
+            TEST_ASSERT(
+                written == entry.data.size(),
+                "Mixed LRU decompressed size mismatch"
+            );
+
+            TEST_ASSERT(
+                std::memcmp(
+                    output.data(),
+                    entry.data.data(),
+                    entry.data.size()
+                ) == 0,
+                "Mixed LRU decompressed data mismatch"
+            );
+
+            total_reads++;
+            total_bytes += written;
+        }
+
+        std::cout
+            << "    Round " << (round + 1)
+            << "/" << ROUNDS
+            << " OK | LRU: "
+            << arch->compressor_lru.current_bytes / (1024 * 1024)
+            << " MiB\n";
+    }
+
+    auto stress_end = Clock::now();
+
+    const double stress_ms =
+        std::chrono::duration<double, std::milli>(
+            stress_end - stress_start
+        ).count();
+
+    TEST_ASSERT(
+        total_reads == ENTRY_COUNT * ROUNDS,
+        "Unexpected number of LRU reads"
+    );
+
+    TEST_ASSERT(
+        total_bytes == ENTRY_COUNT * ROUNDS * ENTRY_SIZE,
+        "Unexpected number of decompressed bytes"
+    );
+
+    std::cout
+        << "    Stress reads : " << total_reads << "\n"
+        << "    Data checked : "
+        << total_bytes / (1024 * 1024)
+        << " MiB\n"
+        << "    Stress time  : "
+        << stress_ms << " ms\n";
+
+    // Now test the important cache-coherency case:
+    //
+    // overwrite an existing compressed entry, then read it repeatedly.
+    // The old decompressed cache entry must not survive the overwrite.
+
+    const size_t overwrite_idx = 0;
+
+    std::vector<uint8_t> replacement(ENTRY_SIZE);
+
+    for (size_t i = 0; i < replacement.size(); ++i) {
+        replacement[i] = static_cast<uint8_t>(
+            ((i * 31) ^ (i >> 7) ^ 0xA5) & 0xFF
+        );
+    }
+
+    BRL_Error overwrite_err = BRL_WriteEx(
+        arch,
+        entries[overwrite_idx].hash,
+        replacement.data(),
+        replacement.size(),
+        true
+    );
+
+    TEST_ASSERT(
+        overwrite_err == BRL_OK,
+        "Compressed overwrite failed"
+    );
+
+    // Update our expected data.
+    entries[overwrite_idx].data = replacement;
+
+    // Read it multiple times. The first read may decompress and populate
+    // the cache; subsequent reads must return the replacement data rather
+    // than stale data from before the overwrite.
+    for (int i = 0; i < 5; ++i) {
+        uint64_t written = 0;
+
+        BRL_Error err = BRL_ReadCopy(
+            arch,
+            entries[overwrite_idx].hash,
+            output.data(),
+            output.size(),
+            &written
+        );
+
+        TEST_ASSERT(
+            err == BRL_OK,
+            "Read after compressed overwrite failed"
+        );
+
+        TEST_ASSERT(
+            written == replacement.size(),
+            "Read after overwrite returned wrong size"
+        );
+
+        TEST_ASSERT(
+            std::memcmp(
+                output.data(),
+                replacement.data(),
+                replacement.size()
+            ) == 0,
+            "LRU returned stale data after compressed overwrite"
+        );
+    }
+
+    // Delete an entry and verify its cache entry is invalidated.
+
+    const uint64_t deleted_hash = entries[1].hash;
+
+    TEST_ASSERT(
+        BRL_Delete(arch, deleted_hash) == BRL_OK,
+        "Failed to delete LRU test entry"
+    );
+
+    uint64_t deleted_written = 0;
+
+    BRL_Error deleted_read = BRL_ReadCopy(
+        arch,
+        deleted_hash,
+        output.data(),
+        output.size(),
+        &deleted_written
+    );
+
+    TEST_ASSERT(
+        deleted_read == BRL_ENTRY_NOT_FOUND,
+        "Deleted entry was still returned from LRU"
+    );
+
+    // Sync, close, reopen, and verify again.
+    // The LRU itself is intentionally ephemeral. After reopening, all
+    // compressed entries should still decompress correctly from disk.
+
+    TEST_ASSERT(
+        BRL_Sync(arch) == BRL_OK,
+        "BRL_Sync failed after compressor/LRU stress"
+    );
+
+    TEST_ASSERT(
+        BRL_Close(arch) == BRL_OK,
+        "BRL_Close failed after compressor/LRU stress"
+    );
+
+    arch = nullptr;
+
+    TEST_ASSERT(
+        BRL_Open(path, OpenFlagWithCompressorLRU, &arch) == BRL_OK,
+        "Failed to reopen compressor/LRU test archive"
+    );
+
+    TEST_ASSERT(
+        BRL_SetCompressor(arch, &g_test_compressor),
+        "Failed to restore compressor after reopen"
+    );
+
+    // Entry 1 was deleted; every other entry must survive.
+    for (size_t i = 0; i < entries.size(); ++i) {
+        if (i == 1)
+            continue;
+
+        uint64_t written = 0;
+
+        BRL_Error err = BRL_ReadCopy(
+            arch,
+            entries[i].hash,
+            output.data(),
+            output.size(),
+            &written
+        );
+
+        TEST_ASSERT(
+            err == BRL_OK,
+            "Post-reopen decompression failed"
+        );
+
+        TEST_ASSERT(
+            written == entries[i].data.size(),
+            "Post-reopen decompressed size mismatch"
+        );
+
+        TEST_ASSERT(
+            std::memcmp(
+                output.data(),
+                entries[i].data.data(),
+                entries[i].data.size()
+            ) == 0,
+            "Post-reopen decompressed data mismatch"
+        );
+    }
+
+    // Final benchmark: repeat reads after reopening.
+    // This measures the decompression/LRU path on a clean archive.
+
+    constexpr int FINAL_ROUNDS = 10;
+    auto final_start = Clock::now();
+
+    for (int round = 0; round < FINAL_ROUNDS; ++round) {
+        std::vector<size_t> order;
+
+        for (size_t i = 0; i < entries.size(); ++i) {
+            if (i != 1)
+                order.push_back(i);
+        }
+
+        std::shuffle(order.begin(), order.end(), rng);
+
+        for (size_t entry_idx : order) {
+            uint64_t written = 0;
+
+            BRL_Error err = BRL_ReadCopy(
+                arch,
+                entries[entry_idx].hash,
+                output.data(),
+                output.size(),
+                &written
+            );
+
+            TEST_ASSERT(
+                err == BRL_OK,
+                "Final LRU benchmark read failed"
+            );
+
+            TEST_ASSERT(
+                written == entries[entry_idx].data.size(),
+                "Final LRU benchmark size mismatch"
+            );
+
+            TEST_ASSERT(
+                std::memcmp(
+                    output.data(),
+                    entries[entry_idx].data.data(),
+                    entries[entry_idx].data.size()
+                ) == 0,
+                "Final LRU benchmark data mismatch"
+            );
+        }
+    }
+
+    auto final_end = Clock::now();
+
+    const double final_ms =
+        std::chrono::duration<double, std::milli>(
+            final_end - final_start
+        ).count();
+
+    const uint64_t final_bytes =
+        static_cast<uint64_t>(ENTRY_COUNT - 1) *
+        ENTRY_SIZE *
+        FINAL_ROUNDS;
+
+    const double throughput =
+        (final_bytes / (1024.0 * 1024.0)) /
+        (final_ms / 1000.0);
+
+    std::cout
+        << "    Final benchmark : "
+        << final_bytes / (1024 * 1024)
+        << " MiB verified in "
+        << final_ms
+        << " ms ("
+        << throughput
+        << " MiB/s)\n";
+
+    std::cout << "    Decompression callback called " << g_DecompressionAmount << " times." << std::endl;
+
+    TEST_ASSERT(
+        arch->compressor_lru.current_bytes > 0,
+        "LRU was not populated after reopen"
+    );
+
+    TEST_ASSERT(
+        BRL_Close(arch) == BRL_OK,
+        "Final BRL_Close failed"
+    );
+
+    std::filesystem::remove(path, ec);
 
     return true;
 }
@@ -425,6 +961,7 @@ int main() {
     RUN_TEST(Test_FuzzingAndCorruption);
     RUN_TEST(Test_DifferentialStress);
     RUN_TEST(Test_Benchmark);
+    RUN_TEST(Test_CompressorDecompressorLRU);
 
     std::cout << "\n---------------------------------------------------------\n";
     if (failed_tests == 0) {

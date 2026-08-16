@@ -40,6 +40,10 @@ BRL_EXTERN_C_START
 #define BRL_MSYNC_PAGE_MASK 4095ULL
 #endif // BRL_MSYNC_PAGE_MASK
 
+#ifndef BRL_COMPRESSOR_LRU_MAX_BYTES 
+#define BRL_COMPRESSOR_LRU_MAX_BYTES 64 * 1024 * 1024ULL
+#endif // BRL_COMPRESSOR_LRU_MAX_BYTES
+
 #pragma pack(push, 1)
 
 typedef enum BRL_HeaderFlags {
@@ -76,8 +80,16 @@ typedef struct {
 
 #pragma pack(pop)
 
-typedef uint64_t (*BRL_CompressFn)(const void* src, uint64_t src_size, void* dst, uint64_t dst_capacity, uint64_t hash, void* user_data);
-typedef uint64_t (*BRL_DecompressFn)(const void* src, uint64_t src_size, void* dst, uint64_t dst_capacity, uint64_t hash, void* user_data);
+typedef uint64_t (*BRL_CompressFn)(
+    const void* src, uint64_t src_size, 
+    void* dst, uint64_t dst_capacity, 
+    uint64_t hash, void* user_data
+);
+typedef uint64_t (*BRL_DecompressFn)(
+    const void* src, uint64_t src_size, 
+    void* dst, uint64_t dst_capacity, 
+    uint64_t hash, void* user_data
+);
 typedef uint64_t (*BRL_GetBoundFn)(uint64_t src_size, void* user_data);
 
 typedef struct BRL_Compressor {
@@ -99,29 +111,59 @@ typedef struct {
     uint32_t        capacity;
 } BRL_FreeBin;
 
+typedef struct BRL_CacheNode {
+    uint64_t hash;
+    void*    data;
+    uint64_t size; 
+    
+    struct BRL_CacheNode* prev;
+    struct BRL_CacheNode* next;
+} BRL_CacheNode;
+
+typedef struct BRL_DataLRU {
+    BRL_CacheNode** hash_table;
+    uint32_t        capacity; 
+    
+    BRL_CacheNode*  head;     
+    BRL_CacheNode*  tail;     
+    
+    uint64_t        current_bytes;
+    uint64_t        max_memory_bytes;
+} BRL_DataLRU;
+
+typedef enum BRL_OpenFlags {
+    BRL_OPEN_NORMAL                      = 1U << 0,
+    BRL_OPEN_ENABLE_COMPRESSOR_LRU_CACHE = 1U << 1,
+} BRL_OpenFlags;
+
 typedef struct BRL_Archive {
-    BRL_fd          fd;
-    BRL_DiskHeader* header;
-    uint8_t*        mapped_data;
-    uint64_t        mapped_size;
+    BRL_fd            fd;
+    BRL_DiskHeader*   header;
+    uint8_t*          mapped_data;
+    uint64_t          mapped_size;
 
     // Structure of Arrays (SoA) Index
-    uint64_t*       hashes;
-    BRL_EntryMeta*  metadata;
-    uint32_t        index_capacity;
+    uint64_t*         hashes;
+    BRL_EntryMeta*    metadata;
+    uint32_t          index_capacity;
 
     // Segregated Free Lists
-    BRL_FreeBin     free_bins[BRL_NUM_BINS];
+    BRL_FreeBin       free_bins[BRL_NUM_BINS];
 
     // Reusable Compressor Scratch Arena
-    BRL_Compressor  compressor;
-    void*           comp_buffer;
-    uint64_t        comp_capacity;
+    BRL_Compressor    compressor;
+    void*             comp_buffer;
+    uint64_t          comp_capacity;
 
     // Dirty Range Tracking
-    uint64_t        dirty_min;
-    uint64_t        dirty_max;
-    bool            is_dirty;
+    uint64_t          dirty_min;
+    uint64_t          dirty_max;
+    bool              is_dirty;
+
+    // LRU caches
+    BRL_DataLRU       compressor_lru;
+
+    uint32_t          open_flags;
 } BRL_Archive;
 
 #ifndef BRL_DISABLE_STATIC_LEN_CHECKS
