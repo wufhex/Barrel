@@ -5,13 +5,13 @@
 #include <stdint.h>
 
 static uint32_t BRL_SizeToBin(uint64_t size);
-static bool BRL_BinPush(BRL_Archive* arch, uint64_t offset, uint64_t size);
-static bool BRL_BinPop(BRL_Archive* arch, uint64_t required_size, uint64_t* out_offset, uint64_t* out_allocated_size);
+static bool     BRL_BinPush(BRL_Archive* arch, uint64_t offset, uint64_t size);
+static bool     BRL_BinPop(BRL_Archive* arch, uint64_t required_size, uint64_t* out_offset, uint64_t* out_allocated_size);
 static uint32_t BRL_HashFind(BRL_Archive* arch, uint64_t hash);
 static uint32_t BRL_HashInsertSlot(BRL_Archive* arch, uint64_t hash);
-static void BRL_FreeArchive(BRL_Archive* arch);
-static void BRL_MarkDirty(BRL_Archive* arch, uint64_t offset, uint64_t size);
-static void BRL_MarkIndexDirty(BRL_Archive* arch, uint32_t idx);
+static void     BRL_FreeArchive(BRL_Archive* arch);
+static void     BRL_MarkDirty(BRL_Archive* arch, uint64_t offset, uint64_t size);
+static void     BRL_MarkIndexDirty(BRL_Archive* arch, uint32_t idx);
 
 BRL_Error BRL_Create(const char* filepath, uint64_t hints, uint64_t initial_index_capacity, uint64_t max_virtual_capacity) {
     uint64_t cap = (initial_index_capacity == 0) ? BRL_DEF_INITIAL_IDX_CAPACITY_CAP : 2;
