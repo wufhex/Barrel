@@ -108,7 +108,7 @@ int main() {
         return 1;
     }
 
-    printf("Read hint: 0x%llX\n\n", arch->header->hints);
+    printf("Read hint: 0x%lX\n\n", arch->header->hints);
 
     if (!BRL_SetCompressor(arch, &g_compressor)) {
         printf("Error setting compressor.\n");

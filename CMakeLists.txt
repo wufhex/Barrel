@@ -6,7 +6,10 @@ project(
 )
 
 # Options
-option(BRL_BUILD_SHARED  "Build libbarrel as a shared library"     OFF)
+option(BRL_BUILD_SHARED  "Build libbarrel as a shared library" OFF)
+option(BRL_BUILD_EXAMPLE "Build barrel example"                OFF)
+option(BRL_BUILD_TS      "Build barrel test suite"             OFF)
+
 set(CMAKE_C_STANDARD 99)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 set(CMAKE_C_EXTENSIONS OFF)
