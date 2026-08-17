@@ -11,10 +11,10 @@ else()
     set(LIB_TYPE STATIC)
 endif()
 
-add_library(libbarrel ${LIB_TYPE} ${LIB_SOURCES})
+add_library(barrel ${LIB_TYPE} ${LIB_SOURCES})
 
 # Include 'inc/' for public library headers, and 'src/' for internal headers
-target_include_directories(libbarrel
+target_include_directories(barrel
     PUBLIC 
         "${CMAKE_CURRENT_SOURCE_DIR}/inc"
     PRIVATE 

@@ -109,7 +109,7 @@ if (hint & HINT_CAT_COMPRESSION_MASK) {
 | `UTF16LE` | `0x0002000000000000` | UTF-16 Little Endian text |
 | `B64` | `0x0004000000000000` | Standard Base64 |
 | `B64URL` | `0x0008000000000000` | URL-safe Base64 |
-| `HEX` | `0x0010000000000000` | Hexadecimal (Base16) |
+| `EXECUTABLE` | `0x0010000000000000` | Executable code |
 | `JSON` | `0x0020000000000000` | JSON document |
 | `BSON` | `0x0040000000000000` | Binary JSON |
 | `CBOR` | `0x0080000000000000` | CBOR binary data |

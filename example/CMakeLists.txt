@@ -24,7 +24,7 @@ target_include_directories(barrel-example
 # Link libs
 target_link_libraries(barrel-example
     PRIVATE
-        libbarrel
+        barrel
         PkgConfig::LZ4
 )
 

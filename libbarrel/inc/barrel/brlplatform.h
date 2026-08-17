@@ -238,7 +238,94 @@ static inline bool __BRL_PunchHole(int fd, uint64_t offset, uint64_t length) {
 #endif // BRL_PUNCH_HOLE
 
 #else 
-// FREESTANDING
+
+#ifndef BRL_MALLOC
+#error "BRL_MALLOC undefined"
+#endif // BRL_MALLOC
+
+#ifndef BRL_CALLOC
+#error "BRL_CALLOC undefined"
+#endif // BRL_CALLOC
+
+#ifndef BRL_REALLOC
+#error "BRL_REALLOC undefined"
+#endif // BRL_REALLOC
+
+#ifndef BRL_MEMCPY
+#error "BRL_MEMCPY undefined"
+#endif
+
+#ifndef BRL_MEMMOVE
+#error "BRL_MEMMOVE undefined"
+#endif // BRL_MEMMOVE
+
+#ifndef BRL_MEMSET
+#error "BRL_MEMSET undefined"
+#endif // BRL_MEMSET
+
+#ifndef BRL_FREE
+#error "BRL_FREE undefined"
+#endif // BRL_FREE
+
+#ifndef BRL_fd
+#error "BRL_fd undefined"
+#endif // BRL_fd
+
+#ifndef BRL_IS_INVALID_FD
+#error "BRL_IS_INVALID_FD undefined"
+#endif // BRL_IS_INVALID_FD
+
+#ifndef BRL_CLZLL
+#error "BRL_CLZLL undefined"
+#endif // BRL_CLZLL
+
+#ifndef BRL_FOPEN_CREATE
+#error "BRL_FOPEN_CREATE undefined"
+#endif // BRL_FOPEN_CREATE
+
+#ifndef BRL_FOPEN
+#error "BRL_FOPEN undefined"
+#endif
+
+#ifndef BRL_FWRITE
+#error "BRL_FWRITE undefined"
+#endif // BRL_FWRITE
+
+#ifndef BRL_FCLOSE
+#error "BRL_FCLOSE undefined"
+#endif // BRL_FCLOSE
+
+#ifndef BRL_FSIZE
+#error "BRL_FSIZE undefined"
+#endif // BRL_FSIZE
+
+#ifndef BRL_PREAD
+#error "BRL_PREAD undefined"
+#endif // BRL_PREAD
+
+#ifndef BRL_FTRUNCATE
+#error "BRL_FTRUNCATE undefined"
+#endif // BRL_FTRUNCATE
+
+#ifndef BRL_EnsureSparseAlloc
+#error "BRL_EnsureSparseAlloc undefined"
+#endif // BRL_EnsureSparseAlloc
+
+#ifndef BRL_MMAP
+#error "BRL_MMAP undefined"
+#endif // BRL_MMAP
+
+#ifndef BRL_MUNMAP
+#error "BRL_MUNMAP undefined"
+#endif // BRL_MUNMAP
+
+#ifndef BRL_MSYNC
+#error "BRL_MSYNC undefined"
+#endif // BRL_MSYNC
+
+#ifndef BRL_PUNCH_HOLE
+#error "BRL_PUNCH_HOLE undefined"
+#endif // BRL_PUNCH_HOLE
 
 #endif
 

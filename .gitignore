@@ -11,3 +11,8 @@ private_notes.txt
 asan.log*
 *.log
 .cache/
+*.egg-info/
+*.so
+*.dll
+*.dylib
+__pycache__
