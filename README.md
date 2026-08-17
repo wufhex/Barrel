@@ -1,5 +1,5 @@
 <div align="center">
-	<img src="img/mystic.png" width="200" height="200">
+	<img src="img/barrel.png" width="100" height="100">
 	<h1>Barrel</h1>
 	<p>
 		<b>Fast, memory-mapped binary archive format and key-value storage engine for C and C++.</b>
