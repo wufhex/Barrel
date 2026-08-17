@@ -4,7 +4,6 @@ file(GLOB_RECURSE LIB_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/inc/*.h"
 )
 
-# Set library type based on flag
 if(BRL_BUILD_SHARED)
     set(LIB_TYPE SHARED)
 else()
@@ -13,7 +12,13 @@ endif()
 
 add_library(barrel ${LIB_TYPE} ${LIB_SOURCES})
 
-# Include 'inc/' for public library headers, and 'src/' for internal headers
+if(BRL_BUILD_SHARED)
+    target_compile_definitions(barrel 
+        PRIVATE BUILD_LIBTYPE_SHARED
+        INTERFACE USE_LIBTYPE_SHARED
+    )
+endif()
+
 target_include_directories(barrel
     PUBLIC 
         "${CMAKE_CURRENT_SOURCE_DIR}/inc"

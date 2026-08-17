@@ -46,44 +46,44 @@ typedef enum BRL_Error {
 } BRL_Error;
 
 // Creates a new empty Barrel file on disk
-BRL_Error       BRLAPI BRL_Create(const char* filepath, uint64_t hints, uint64_t initial_index_capacity, uint64_t max_virtual_capacity);
+BRLAPI BRL_Error       BRL_Create(const char* filepath, uint64_t hints, uint64_t initial_index_capacity, uint64_t max_virtual_capacity);
 
 // Opens and mmaps a Barrel file
-BRL_Error       BRLAPI BRL_Open(const char* filepath, uint32_t open_flags, BRL_Archive** out_arch);
+BRLAPI BRL_Error       BRL_Open(const char* filepath, uint32_t open_flags, BRL_Archive** out_arch);
 
 // Flushes changes and unmaps the archive
-BRL_Error       BRLAPI BRL_Close(BRL_Archive* arch);
+BRLAPI BRL_Error       BRL_Close(BRL_Archive* arch);
 
 // Returns direct mapped pointer to data
-BRL_Error       BRLAPI BRL_Read(BRL_Archive* arch, uint64_t hash, const uint8_t** out_data, uint64_t* out_size);
+BRLAPI BRL_Error       BRL_Read(BRL_Archive* arch, uint64_t hash, const uint8_t** out_data, uint64_t* out_size);
 
 // Read an entry and copy it in a buffer, used for compressed entries
-BRL_Error       BRL_ReadCopy(BRL_Archive* arch, uint64_t hash, 
+BRLAPI BRL_Error       BRL_ReadCopy(BRL_Archive* arch, uint64_t hash, 
     void* dst_buffer, uint64_t dst_capacity, uint64_t* out_written_size);
 
 // Writes data into existing hole, overwrites in-place, or appends
-BRL_Error       BRLAPI BRL_WriteEx(BRL_Archive* arch, uint64_t hash, const void* data, uint64_t size, bool use_compressor);
+BRLAPI BRL_Error       BRL_WriteEx(BRL_Archive* arch, uint64_t hash, const void* data, uint64_t size, bool use_compressor);
 
 // Writes data into existing hole, overwrites in-place, or appends
-BRL_Error       BRLAPI BRL_Write(BRL_Archive* arch, uint64_t hash, const void* data, uint64_t size);
+BRLAPI BRL_Error       BRL_Write(BRL_Archive* arch, uint64_t hash, const void* data, uint64_t size);
 
 // Deletes a file entry and marks its region as an orphan hole
-BRL_Error       BRLAPI BRL_Delete(BRL_Archive* arch, uint64_t hash);
+BRLAPI BRL_Error       BRL_Delete(BRL_Archive* arch, uint64_t hash);
 
 // Synchronizes mmap memory to disk
-BRL_Error       BRLAPI BRL_Sync(BRL_Archive* arch);
+BRLAPI BRL_Error       BRL_Sync(BRL_Archive* arch);
 
 // Hash a string, used to locate entries by original name
-uint64_t        BRLAPI BRL_HashString(const char* str);
+BRLAPI uint64_t        BRL_HashString(const char* str);
 
 // Get the current compressor, NULL if not set
-BRL_Compressor* BRLAPI BRL_GetDecompressor(BRL_Archive* arch);
+BRLAPI BRL_Compressor* BRL_GetDecompressor(BRL_Archive* arch);
 
 // Set a compressor. false if arch or compressor is NULL
-bool            BRLAPI BRL_SetCompressor(BRL_Archive* arch, const BRL_Compressor* compressor);
+BRLAPI bool            BRL_SetCompressor(BRL_Archive* arch, const BRL_Compressor* compressor);
 
 // Formats the error code into a string.
-const char*     BRLAPI BRL_FormatError(BRL_Error err);
+BRLAPI const char*     BRL_FormatError(BRL_Error err);
 
 #ifndef BRL_HASH
 // Hash a string, used to locate entries by original name

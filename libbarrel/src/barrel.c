@@ -28,7 +28,7 @@ BRL_Error BRL_Create(const char* filepath, uint64_t hints, uint64_t initial_inde
 
     if (cap > UINT32_MAX) return BRL_INVALID_PARAM; 
 
-    int fd = BRL_FOPEN_CREATE(filepath);
+    BRL_fd fd = BRL_FOPEN_CREATE(filepath);
     if (BRL_IS_INVALID_FD(fd)) return BRL_INVALID_FD;
 
     BRL_DiskHeader hdr;
@@ -62,7 +62,7 @@ BRL_Error BRL_Create(const char* filepath, uint64_t hints, uint64_t initial_inde
 }
 
 BRL_Error BRL_Open(const char* filepath, uint32_t open_flags, BRL_Archive** out_arch) {
-    int fd = BRL_FOPEN(filepath);
+    BRL_fd fd = BRL_FOPEN(filepath);
     if (BRL_IS_INVALID_FD(fd)) return BRL_INVALID_FD;
 
     uint64_t file_size = 0;

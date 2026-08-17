@@ -28,9 +28,28 @@ target_link_libraries(barrel-example
         PkgConfig::LZ4
 )
 
-# Not required most of the times, but if BRL_ENV_CC
-# isn't defined by Barrel, define it yourself
+# Compile definitions
 target_compile_definitions(barrel-example
     PRIVATE
         BRL_ENV_CC
 )
+
+# Copy dependent DLLs to the executable directory on Windows
+if(WIN32)
+    add_custom_command(TARGET barrel-example POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            $<TARGET_FILE:barrel>
+            $<TARGET_FILE_DIR:barrel-example>
+        COMMAND_EXPAND_LISTS
+    )
+
+    # Copy LZ4 DLL if it was built dynamically
+    if(TARGET PkgConfig::LZ4)
+        add_custom_command(TARGET barrel-example POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                $<TARGET_RUNTIME_DLLS:barrel-example>
+                $<TARGET_FILE_DIR:barrel-example>
+            COMMAND_EXPAND_LISTS
+        )
+    endif()
+endif()
