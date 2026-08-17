@@ -443,6 +443,61 @@ const char* BRL_FormatError(BRL_Error err) {
     return __g_BRL_ErrorString[err];
 }
 
+BRL_Error BRL_ResizeOffline(const char* filepath, uint64_t new_capacity) {
+    if (!filepath) return BRL_INVALID_PARAM;
+
+    BRL_fd fd = BRL_FOPEN(filepath);
+    if (BRL_IS_INVALID_FD(fd)) return BRL_INVALID_FD;
+
+    BRL_DiskHeader hdr;
+    uint64_t out_size = 0;
+    if (!BRL_PREAD(fd, &hdr, sizeof(hdr), 0, &out_size) || out_size != sizeof(hdr)) {
+        BRL_FCLOSE(fd);
+        return BRL_INVALID_HEADER;
+    }
+    
+    // Validate magic signature & header version
+    if (hdr.signature[0] != BRL_SIGNATURE_0 || hdr.signature[1] != BRL_SIGNATURE_1) {
+        BRL_FCLOSE(fd);
+        return BRL_INVALID_MAGIC;
+    }
+    if (hdr.version != BRL_VERSION) {
+        BRL_FCLOSE(fd);
+        return BRL_INVALID_VERSION;
+    }
+
+    // Capacity must be able to hold the header and index structures
+    uint64_t index_bytes = (uint64_t)hdr.index_capacity * (sizeof(uint64_t) + sizeof(BRL_EntryMeta));
+    uint64_t min_required = hdr.index_offset + index_bytes;
+    
+    if (new_capacity < min_required) {
+        BRL_FCLOSE(fd);
+        return BRL_RESIZE_SIZE_TOO_SMALL;
+    }
+
+    // Capacity cannot truncate existing written entries below hwm
+    if (new_capacity < hdr.high_water_mark) {
+        BRL_FCLOSE(fd);
+        return BRL_RESIZE_DATA_TRUNCATION;
+    }
+
+    // Update physical file boundary on disk
+    if (!BRL_FTRUNCATE(fd, new_capacity)) {
+        BRL_FCLOSE(fd);
+        return BRL_ENTRY_WRITE_FAIL;
+    }
+
+    // Commit updated virtual_capacity to header
+    hdr.virtual_capacity = new_capacity;
+    if (!BRL_PWRITE(fd, &hdr, sizeof(hdr), 0, &out_size) || out_size != sizeof(hdr)) {
+        BRL_FCLOSE(fd);
+        return BRL_HEADER_WRITE_FAIL;
+    }
+
+    BRL_FCLOSE(fd);
+    return BRL_OK;
+}
+
 static uint32_t BRL_SizeToBin(uint64_t size) {
     if (size <= (1ULL << BRL_MIN_BIN_SHIFT)) return 0;
     uint32_t bin = 64 - BRL_CLZLL(size - 1) - BRL_MIN_BIN_SHIFT;

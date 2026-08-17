@@ -70,12 +70,12 @@ typedef enum BRL_EntryFlags {
 } BRL_EntryFlags;
 
 typedef struct {
-    uint64_t offset;            // 0
-    uint64_t size;              // 8
-    uint64_t compressed_size;   // 16
-    uint64_t allocated_size;    // 24
-    uint32_t flags;             // 32
-    uint32_t reserved;          // 36
+    uint64_t offset;
+    uint64_t size;
+    uint64_t compressed_size;
+    uint64_t allocated_size;
+    uint32_t flags;
+    uint32_t reserved;
 } BRL_EntryMeta;
 
 #pragma pack(pop)

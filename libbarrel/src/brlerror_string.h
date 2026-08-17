@@ -36,5 +36,9 @@ static const char* const __g_BRL_ErrorString[] = {
     "Barrel tried to compress/decompress an entry, but the callback returned an error.", // BRL_DECOMPRESSOR_CALLBACK_FAILED
     "Entry is compressed on disk; use BRL_ReadCopy.",   // BRL_REQUIRES_DECOMPRESSION
     "The provided destination buffer is too small.",     // BRL_BUFFER_TOO_SMALL
+
+    "The provided size for resize is too small",         // BRL_RESIZE_SIZE_TOO_SMALL
+    "The provided size for resize will truncate existing data", // BRL_RESIZE_DATA_TRUNCATION
+
     "Unknown error. I don't even know how you got this error :P" // BRL_UNKNOWN 
 };

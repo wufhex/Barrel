@@ -951,6 +951,62 @@ bool Test_CompressorDecompressorLRU() {
     return true;
 }
 
+bool Test_ResizeArchive() {
+    const char* path = "./test_resize.brl";
+    constexpr uint64_t INITIAL_CAP = 1 * 1024 * 1024; // 1 MiB
+    constexpr uint64_t EXTEND_CAP  = 4 * 1024 * 1024; // 4 MiB
+    
+    // Cleanup any lingering test file
+    std::error_code ec;
+    std::filesystem::remove(path, ec);
+
+    // Create initial archive (1 MiB virtual capacity)
+    TEST_ASSERT(BRL_Create(path, 0, 256, INITIAL_CAP) == BRL_OK, "Failed to create archive for resize test");
+
+    // Populate archive with test data
+    BRL_Archive* arch = nullptr;
+    TEST_ASSERT(BRL_Open(path, OpenFlagNormal, &arch) == BRL_OK, "Failed to open archive");
+
+    std::vector<uint8_t> payload = GenerateRandomBuffer(4096, 777);
+    uint64_t test_hash = BRL_HashString("RESIZE_TEST_PAYLOAD");
+    TEST_ASSERT(BRL_Write(arch, test_hash, payload.data(), payload.size()) == BRL_OK, "Failed to write payload");
+
+    // Capture the high-water mark before closing
+    uint64_t hwm = arch->header->high_water_mark;
+    BRL_Close(arch);
+
+    // Test Invalid Shrink (Capacity below High-Water Mark)
+    uint64_t invalid_shrink_cap = hwm - 1;
+    TEST_ASSERT(BRL_ResizeOffline(path, invalid_shrink_cap) == BRL_RESIZE_DATA_TRUNCATION, 
+                "Resize permitted shrinking below high-water mark");
+
+    // Test Invalid Shrink (Capacity below header + index metadata requirement)
+    TEST_ASSERT(BRL_ResizeOffline(path, 16) == BRL_RESIZE_SIZE_TOO_SMALL, 
+                "Resize permitted capacity smaller than header requirements");
+
+    // Test Extension (Extend to 4 MiB)
+    TEST_ASSERT(BRL_ResizeOffline(path, EXTEND_CAP) == BRL_OK, "Offline extension failed");
+    TEST_ASSERT(std::filesystem::file_size(path) == EXTEND_CAP, "Physical file size mismatch after extension");
+
+    // Test Valid Shrink (Shrink down to exact High-Water Mark)
+    TEST_ASSERT(BRL_ResizeOffline(path, hwm) == BRL_OK, "Offline valid shrink to HWM failed");
+    TEST_ASSERT(std::filesystem::file_size(path) == hwm, "Physical file size mismatch after shrink");
+
+    // Verify Data Integrity Post-Resize
+    TEST_ASSERT(BRL_Open(path, OpenFlagNormal, &arch) == BRL_OK, "Failed to reopen archive post-resize");
+    TEST_ASSERT(arch->header->virtual_capacity == hwm, "Virtual capacity header field was not persisted");
+
+    const uint8_t* read_ptr = nullptr;
+    uint64_t read_sz = 0;
+    TEST_ASSERT(BRL_Read(arch, test_hash, &read_ptr, &read_sz) == BRL_OK, "Failed to read payload post-resize");
+    TEST_ASSERT(read_sz == payload.size(), "Payload size mismatch post-resize");
+    TEST_ASSERT(std::memcmp(read_ptr, payload.data(), payload.size()) == 0, "Data corrupted post-resize");
+
+    BRL_Close(arch);
+    std::filesystem::remove(path, ec);
+    return true;
+}
+
 int main() {
     int total_tests = 0;
     int failed_tests = 0;
@@ -962,6 +1018,7 @@ int main() {
     RUN_TEST(Test_DifferentialStress);
     RUN_TEST(Test_Benchmark);
     RUN_TEST(Test_CompressorDecompressorLRU);
+    RUN_TEST(Test_ResizeArchive);
 
     std::cout << "\n---------------------------------------------------------\n";
     if (failed_tests == 0) {

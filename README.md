@@ -13,7 +13,7 @@ Barrel archives are created with a predefined virtual capacity, this can be any 
 
 Choosing a large capacity won't allocate the entire archive at once since memory mapping is used, so a large capacity value won't present problems and can also be beneficial if the final size isn't know at creation time. 
 
-Archives could also be expanded manually after creation, although it might take long for large archives and can corrupt the archive or the data in it if done improperly. **The Barrel API doesn't currently support expansion, but it's a planned feature.**
+Archives could also be expanded/shrunk manually after creation, although it might take long for large archives and can corrupt the archive or the data in it if done improperly. The Barrel API provides official support for archive resizing (via `BRL_ResizeOffline`), although it only works when the file **IS NOT** memory mapped and it's currently an experimental feature.
 
 ## Key Features
 
@@ -83,6 +83,9 @@ BRL_Error BRL_WriteEx(BRL_Archive* arch, uint64_t hash, const void* data, uint64
 
 // Delete an entry (marks the disk region as an orphan hole for future reuse)
 BRL_Error BRL_Delete(BRL_Archive* arch, uint64_t hash);
+
+// Resizes an archive file. Should only be used when the archive is not memory mapped.
+BRLAPI BRL_Error BRL_ResizeOffline(const char* filepath, uint64_t new_capacity);
 ```
 
 ### C++ Only Features (C++17+)
@@ -97,7 +100,7 @@ constexpr uint64_t operator""_BRL_Hash(const char* str, std::size_t len) noexcep
 }
 ```
 
-### Compression Interface
+### Compression/Data Processing Interface
 ```c
 bool BRL_SetCompressor(BRL_Archive* arch, const BRL_Compressor* compressor);
 BRL_Compressor* BRL_GetDecompressor(BRL_Archive* arch);

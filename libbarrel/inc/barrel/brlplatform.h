@@ -254,6 +254,45 @@ static inline bool __BRL_Win_PRead(
 #define BRL_PREAD(fd, buf, count, offset, out_size) __BRL_Win_PRead((fd), (buf), (count), (offset), (out_size))
 #endif // BRL_PREAD
 
+static inline bool __BRL_Win_PWrite(
+    BRL_fd fd,
+    const void* buf,
+    uint64_t count,
+    uint64_t offset,
+    uint64_t* out_size
+) {
+    if (!out_size) return false;
+
+    // Prepare OVERLAPPED structure to specify offset without moving file pointer
+    OVERLAPPED overlapped = { 0 };
+    overlapped.Offset = (DWORD)(offset & 0xFFFFFFFF);
+    overlapped.OffsetHigh = (DWORD)(offset >> 32);
+
+    DWORD bytes_written = 0;
+
+    // Perform positional write via WriteFile
+    BOOL success = WriteFile(
+        fd,
+        buf,
+        // WriteFile accepts DWORD only
+        (DWORD)count,
+        &bytes_written,
+        &overlapped
+    );
+
+    if (!success) {
+        *out_size = 0;
+        return false;
+    }
+
+    *out_size = (uint64_t)bytes_written;
+    return true;
+}
+
+#ifndef BRL_PWRITE
+#define BRL_PWRITE(fd, buf, count, offset, out_size) __BRL_Win_PWrite((fd), (buf), (count), (offset), (out_size))
+#endif // BRL_PWRITE
+
 static inline bool __BRL_Win_FTruncate(BRL_fd fd, uint64_t size) {
     LARGE_INTEGER li;
     li.QuadPart = (LONGLONG)size;
@@ -461,7 +500,7 @@ static inline bool __BRL_PunchHole(BRL_fd fd, uint64_t offset, uint64_t length) 
 #define BRL_FOPEN(f) open((f), O_RDWR)
 #endif
 
-    static inline bool __BRL_POSIX_Write(
+static inline bool __BRL_POSIX_Write(
         BRL_fd fd,
         const void* buf,
         uint64_t count,
@@ -522,6 +561,27 @@ static inline bool __BRL_POSIX_PRead(
 #ifndef BRL_PREAD
 #define BRL_PREAD(fd, buf, count, offset, out_size) __BRL_POSIX_PRead((fd), (buf), (count), (offset), (out_size))
 #endif // BRL_PREAD
+
+static inline bool __BRL_POSIX_PWrite(
+    BRL_fd fd,
+    const void* buf,
+    uint64_t count,
+    uint64_t offset,
+    uint64_t* out_size
+) {
+    ssize_t result = pwrite(fd, buf, count, (off_t)offset);
+    if (result < 0) {
+        *out_size = 0;
+        return false;
+    }
+
+    *out_size = (uint64_t)result;
+    return true;
+}
+
+#ifndef BRL_PWRITE
+#define BRL_PWRITE(fd, buf, count, offset, out_size) __BRL_POSIX_PWrite((fd), (buf), (count), (offset), (out_size))
+#endif // BRL_PWRITE
 
 static inline bool __BRL_POSIX_FTruncate(BRL_fd fd, uint64_t size) {
     return ftruncate(fd, (off_t)size) == 0;

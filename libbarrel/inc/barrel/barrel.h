@@ -42,6 +42,9 @@ typedef enum BRL_Error {
     BRL_REQUIRES_DECOMPRESSION,                     // Entry is compressed on disk; use BRL_ReadCopy
     BRL_BUFFER_TOO_SMALL,                           // The provided destination buffer is too small
 
+    BRL_RESIZE_SIZE_TOO_SMALL,                      // The provided size for resize is too small
+    BRL_RESIZE_DATA_TRUNCATION,                     // The provided size for resize will truncate existing data
+
     BRL_UNKNOWN,                                    // Unused
 } BRL_Error;
 
@@ -84,6 +87,9 @@ BRLAPI bool            BRL_SetCompressor(BRL_Archive* arch, const BRL_Compressor
 
 // Formats the error code into a string.
 BRLAPI const char*     BRL_FormatError(BRL_Error err);
+
+// Resizes an archive file. Should only be used when the archive is not memory mapped.
+BRLAPI BRL_Error BRL_ResizeOffline(const char* filepath, uint64_t new_capacity);
 
 #ifndef BRL_HASH
 // Hash a string, used to locate entries by original name
