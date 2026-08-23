@@ -1,0 +1,2 @@
+recursive-include libbarrel_local *
+recursive-include csrc *

@@ -1,0 +1,9 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pybarrel"
+version = "1.0.0"
+description = "Python bindings for the Barrel library"
+requires-python = ">=3.8"
