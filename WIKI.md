@@ -34,6 +34,7 @@ Barrel distinguishes between two key capacities:
 2. **Index Capacity (`index_capacity`)**: The number of slots available in the Structure of Arrays open-addressing hash table. 
    - **Automatic Dynamic Expansion**: Barrel automatically grows the index capacity when the table load factor reaches $\ge 75\%$ or when all open slots are occupied. When expanding, Barrel automatically doubles the slot count ($16 \to 32 \to 64 \to \dots$), shifts data payloads forward, updates entry and free-hole offsets, and rehashes active entries.
    - **Zero Setup Headaches**: You can start an archive with a small default (e.g. 256 slots) and write thousands of files without running out of slots. If you know you are archiving a large number of files upfront, specifying a larger initial capacity (e.g., `-c 65536`) avoids intermediate rehash passes.
+   - **This functionality does not affect reading at all, as it's only used when the number of slots is exceeded.**
 
 Hints are used to instruct other software how to handle entries. Since entries might be compressed, encrypted or encoded, software can read the reader hints field (check `HINTS.md`) to understand how to process the provided data. This heavily reduces the amount of guess work a program might do to display or handle an entry.
 
