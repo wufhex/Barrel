@@ -19,3 +19,4 @@ __pycache__
 **/*_test/*.brl
 **/*_history
 pybarrel/libbarrel_local
+**/*.brl

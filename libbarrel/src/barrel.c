@@ -9,6 +9,7 @@ static bool           BRL_BinPush(BRL_Archive* arch, uint64_t offset, uint64_t s
 static bool           BRL_BinPop(BRL_Archive* arch, uint64_t required_size, uint64_t* out_offset, uint64_t* out_allocated_size);
 static uint32_t       BRL_HashFind(BRL_Archive* arch, uint64_t hash);
 static uint32_t       BRL_HashInsertSlot(BRL_Archive* arch, uint64_t hash);
+static BRL_Error      BRL_GrowIndex(BRL_Archive* arch);
 static void           BRL_FreeArchive(BRL_Archive* arch);
 static void           BRL_MarkDirty(BRL_Archive* arch, uint64_t offset, uint64_t size);
 static void           BRL_MarkIndexDirty(BRL_Archive* arch, uint32_t idx);
@@ -51,6 +52,20 @@ BRL_Error BRL_Create(const char* filepath, uint64_t hints, uint64_t initial_inde
     if (!BRL_FWRITE(fd, &hdr, sizeof(hdr), &out_size) || out_size != sizeof(hdr)) {
         BRL_FCLOSE(fd); 
         return BRL_HEADER_WRITE_FAIL; 
+    }
+
+    // Zero-fill the index area on disk so memory mapping reads clean 0s
+    uint8_t zero_buf[4096];
+    BRL_MEMSET(zero_buf, 0, sizeof(zero_buf));
+
+    uint64_t bytes_remaining = index_bytes;
+    while (bytes_remaining > 0) {
+        uint64_t chunk = (bytes_remaining < sizeof(zero_buf)) ? bytes_remaining : sizeof(zero_buf);
+        if (!BRL_FWRITE(fd, zero_buf, chunk, &out_size) || out_size != chunk) {
+            BRL_FCLOSE(fd);
+            return BRL_ENTRY_WRITE_FAIL;
+        }
+        bytes_remaining -= chunk;
     }
 
     if (!BRL_FTRUNCATE(fd, hdr.high_water_mark)) {
@@ -233,6 +248,144 @@ BRL_Error BRL_ReadCopy(BRL_Archive* arch, uint64_t hash, void* dst_buffer, uint6
     return BRL_OK;
 }
 
+static BRL_Error BRL_GrowIndex(BRL_Archive* arch) {
+    if (!arch || !arch->header) return BRL_INVALID_PARAM;
+
+    uint32_t old_capacity = arch->index_capacity;
+    if (old_capacity >= (UINT32_MAX / 2)) {
+        return BRL_NO_SLOT_AVAILABLE;
+    }
+
+    uint32_t new_capacity = (old_capacity == 0) ? 256 : (old_capacity * 2);
+    uint64_t old_index_bytes = (uint64_t)old_capacity * (sizeof(uint64_t) + sizeof(BRL_EntryMeta));
+    uint64_t new_index_bytes = (uint64_t)new_capacity * (sizeof(uint64_t) + sizeof(BRL_EntryMeta));
+    uint64_t delta_bytes = new_index_bytes - old_index_bytes;
+
+    uint64_t new_high_water_mark = arch->header->high_water_mark + delta_bytes;
+
+    // Check if we need to expand virtual_capacity (memory mapping)
+    if (new_high_water_mark > arch->header->virtual_capacity) {
+        uint64_t new_virt_cap = arch->header->virtual_capacity ? arch->header->virtual_capacity : (1ULL << 20);
+        while (new_virt_cap < new_high_water_mark) {
+            if (new_virt_cap > UINT64_MAX / 2) return BRL_ALLOC_FAIL;
+            new_virt_cap *= 2;
+        }
+
+        // Sync and remap
+        BRL_Sync(arch);
+
+        if (!BRL_FTRUNCATE(arch->fd, new_virt_cap)) {
+            return BRL_ENTRY_WRITE_FAIL;
+        }
+
+        uint8_t* new_mapped = NULL;
+        BRL_MUNMAP(arch->mapped_data, arch->mapped_size);
+        if (!BRL_MMAP(arch->fd, new_virt_cap, 0, (void**)&new_mapped)) {
+            return BRL_MMAP_FAIL;
+        }
+
+        arch->mapped_data = new_mapped;
+        arch->mapped_size = new_virt_cap;
+        arch->header      = (BRL_DiskHeader*)new_mapped;
+        arch->header->virtual_capacity = new_virt_cap;
+        arch->hashes      = (uint64_t*)(new_mapped + arch->header->index_offset);
+        arch->metadata    = (BRL_EntryMeta*)(new_mapped + arch->header->index_offset 
+            + ((uint64_t)old_capacity * sizeof(uint64_t)));
+    }
+
+    // Ensure sparse allocation on disk
+    if (!BRL_EnsureSparseAlloc(arch->fd, new_high_water_mark)) {
+        return BRL_SPARSE_ALLOC_FAIL;
+    }
+
+    // Shift payload data forward by delta_bytes
+    uint64_t old_data_start = arch->header->index_offset + old_index_bytes;
+    if (arch->header->high_water_mark > old_data_start) {
+        uint64_t data_len = arch->header->high_water_mark - old_data_start;
+        BRL_MEMMOVE(arch->mapped_data + old_data_start + delta_bytes,
+                    arch->mapped_data + old_data_start,
+                    data_len);
+    }
+
+    // Stash all active entries into temporary memory
+    BRL_TempSlot* saved_entries = (BRL_TempSlot*)BRL_MALLOC(sizeof(BRL_TempSlot) * (old_capacity ? old_capacity : 1));
+    if (!saved_entries) return BRL_ALLOC_FAIL;
+
+    uint32_t active_count = 0;
+    for (uint32_t i = 0; i < old_capacity; i++) {
+        uint64_t h = arch->hashes[i];
+        if (h >= BRL_VALID_HASH && (arch->metadata[i].flags & BRL_ENTRY_ACTIVE)) {
+            saved_entries[active_count].hash = h;
+            saved_entries[active_count].meta = arch->metadata[i];
+            // Shift offset forward
+            saved_entries[active_count].meta.offset += delta_bytes;
+            active_count++;
+        }
+    }
+
+    // Shift free list bin hole offsets forward
+    for (uint32_t b = 0; b < BRL_NUM_BINS; b++) {
+        for (uint32_t h = 0; h < arch->free_bins[b].count; h++) {
+            arch->free_bins[b].holes[h].offset += delta_bytes;
+        }
+    }
+
+    // Zero the entire new index area
+    uint8_t* index_base = arch->mapped_data + arch->header->index_offset;
+    BRL_MEMSET(index_base, 0, new_index_bytes);
+
+    // Update header and archive struct fields
+    arch->index_capacity          = new_capacity;
+    arch->header->index_capacity  = new_capacity;
+    arch->header->high_water_mark = new_high_water_mark;
+    arch->hashes                  = (uint64_t*)index_base;
+    arch->metadata                = (BRL_EntryMeta*)(index_base + ((uint64_t)new_capacity * sizeof(uint64_t)));
+
+    // Rehash saved active entries into the new expanded hash table
+    uint32_t mask = new_capacity - 1;
+    for (uint32_t i = 0; i < active_count; i++) {
+        uint64_t h = saved_entries[i].hash;
+        uint32_t slot = (uint32_t)(h & mask);
+        while (arch->hashes[slot] != BRL_EMPTY_HASH) {
+            slot = (slot + 1) & mask;
+        }
+        arch->hashes[slot] = h;
+        arch->metadata[slot] = saved_entries[i].meta;
+    }
+
+    BRL_FREE(saved_entries);
+
+    // Rehash LRU cache hash table if compressor LRU is enabled
+    if ((arch->open_flags & BRL_OPEN_ENABLE_COMPRESSOR_LRU_CACHE) && arch->compressor_lru.hash_table) {
+        BRL_CacheNode** old_lru_table = arch->compressor_lru.hash_table;
+        uint32_t old_lru_cap = arch->compressor_lru.capacity;
+
+        BRL_CacheNode** new_lru_table = (BRL_CacheNode**)BRL_CALLOC(new_capacity, sizeof(BRL_CacheNode*));
+        if (new_lru_table) {
+            arch->compressor_lru.hash_table = new_lru_table;
+            arch->compressor_lru.capacity   = new_capacity;
+
+            // Rehash existing LRU nodes
+            for (uint32_t i = 0; i < old_lru_cap; i++) {
+                BRL_CacheNode* node = old_lru_table[i];
+                if (node) {
+                    uint32_t lru_mask = new_capacity - 1;
+                    uint32_t lru_idx = (uint32_t)(node->hash & lru_mask);
+                    while (new_lru_table[lru_idx] != NULL) {
+                        lru_idx = (lru_idx + 1) & lru_mask;
+                    }
+                    new_lru_table[lru_idx] = node;
+                }
+            }
+            BRL_FREE(old_lru_table);
+        }
+    }
+
+    // Mark dirty for entire modified area
+    BRL_MarkDirty(arch, 0, new_high_water_mark);
+    return BRL_OK;
+}
+
 BRL_Error BRL_WriteEx(BRL_Archive* arch, uint64_t hash, const void* data, uint64_t size, bool use_compressor) {
     if (!arch || hash <= BRL_TOMBSTONE_HASH) return BRL_INVALID_PARAM;
     if (size > 0 && !data) return BRL_INVALID_PARAM;
@@ -297,9 +450,22 @@ BRL_Error BRL_WriteEx(BRL_Archive* arch, uint64_t hash, const void* data, uint64
         return BRL_OK;
     }
 
+    // If new entry, check if table load factor is high (>= 75%) or needs growth
+    if (idx == UINT32_MAX) {
+        if ((arch->header->file_count + 1) * 4 > (uint64_t)arch->index_capacity * 3) {
+            BRL_Error grow_err = BRL_GrowIndex(arch);
+            if (grow_err != BRL_OK) return grow_err;
+        }
+    }
+
     // Allocate new slot & location
     uint32_t target_idx = (idx != UINT32_MAX) ? idx : BRL_HashInsertSlot(arch, hash);
-    if (target_idx == UINT32_MAX) return BRL_NO_SLOT_AVAILABLE;
+    if (target_idx == UINT32_MAX) {
+        BRL_Error grow_err = BRL_GrowIndex(arch);
+        if (grow_err != BRL_OK) return grow_err;
+        target_idx = (idx != UINT32_MAX) ? BRL_HashFind(arch, hash) : BRL_HashInsertSlot(arch, hash);
+        if (target_idx == UINT32_MAX) return BRL_NO_SLOT_AVAILABLE;
+    }
 
     uint64_t target_offset = 0;
     uint64_t allocated_size = disk_write_size;
@@ -324,6 +490,35 @@ BRL_Error BRL_WriteEx(BRL_Archive* arch, uint64_t hash, const void* data, uint64
     if (!popped_from_bin) {
         target_offset = arch->header->high_water_mark;
         new_high_water_mark += disk_write_size;
+
+        if (new_high_water_mark > arch->header->virtual_capacity) {
+            uint64_t new_virt_cap = arch->header->virtual_capacity ? arch->header->virtual_capacity : (1ULL << 20);
+            while (new_virt_cap < new_high_water_mark) {
+                if (new_virt_cap > UINT64_MAX / 2) return BRL_ALLOC_FAIL;
+                new_virt_cap *= 2;
+            }
+
+            BRL_Sync(arch);
+
+            if (!BRL_FTRUNCATE(arch->fd, new_virt_cap)) {
+                return BRL_ENTRY_WRITE_FAIL;
+            }
+
+            uint8_t* new_mapped = NULL;
+            BRL_MUNMAP(arch->mapped_data, arch->mapped_size);
+            if (!BRL_MMAP(arch->fd, new_virt_cap, 0, (void**)&new_mapped)) {
+                return BRL_MMAP_FAIL;
+            }
+
+            arch->mapped_data = new_mapped;
+            arch->mapped_size = new_virt_cap;
+            arch->header      = (BRL_DiskHeader*)new_mapped;
+            arch->header->virtual_capacity = new_virt_cap;
+            arch->hashes      = (uint64_t*)(new_mapped + arch->header->index_offset);
+            arch->metadata    = (BRL_EntryMeta*)(new_mapped + arch->header->index_offset 
+                + ((uint64_t)arch->index_capacity * sizeof(uint64_t)));
+        }
+
         if (!BRL_EnsureSparseAlloc(arch->fd, new_high_water_mark)) return BRL_SPARSE_ALLOC_FAIL;
     }
 

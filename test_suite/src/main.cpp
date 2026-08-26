@@ -113,29 +113,39 @@ bool Test_EdgeCases() {
     return true;
 }
 
-bool Test_SlotExhaustion() {
+bool Test_SlotExpansion() {
     const char* path = "./test_capacity.brl";
     // Force initial capacity cap to 16
     BRL_Create(path, 0, 16, 1024 * 1024);
 
     BRL_Archive* arch = nullptr;
     TEST_ASSERT(BRL_Open(path, OpenFlagNormal, &arch) == BRL_OK, "Failed to open archive.");
+    TEST_ASSERT(arch->header->index_capacity == 16, "Initial index capacity mismatch");
 
-    uint8_t val = 0xAB;
-    // Fill all 16 hash slots
-    for (uint32_t i = 0; i < 16; i++) {
+    // Write 100 entries with unique payloads to trigger multiple slot doublings (16 -> 32 -> 64 -> 128)
+    for (uint32_t i = 0; i < 100; i++) {
         uint64_t hash = 100 + i;
-        TEST_ASSERT(BRL_Write(arch, hash, &val, 1) == BRL_OK, "Failed to write during capacity fill");
+        uint32_t val = 0xA0000000 + i;
+        TEST_ASSERT(BRL_Write(arch, hash, &val, sizeof(val)) == BRL_OK, "Failed to write during slot expansion");
     }
 
-    // 17th write must fail with BRL_NO_SLOT_AVAILABLE
-    TEST_ASSERT(BRL_Write(arch, 9999, &val, 1) == BRL_NO_SLOT_AVAILABLE, "Exhausted hash table did not return BRL_NO_SLOT_AVAILABLE");
+    TEST_ASSERT(arch->header->index_capacity >= 128, "Index capacity did not expand as expected");
+    TEST_ASSERT(arch->header->file_count == 100, "File count mismatch after expansions");
 
-    // Delete one entry to create a tombstone
+    // Verify all 100 entries can be read back with exact matching payload data
+    for (uint32_t i = 0; i < 100; i++) {
+        uint64_t hash = 100 + i;
+        uint32_t expected_val = 0xA0000000 + i;
+        const uint8_t* out_data = nullptr;
+        uint64_t out_size = 0;
+        TEST_ASSERT(BRL_Read(arch, hash, &out_data, &out_size) == BRL_OK, "Failed to read entry after expansion");
+        TEST_ASSERT(out_size == sizeof(expected_val), "Size mismatch after expansion");
+        TEST_ASSERT(*(const uint32_t*)out_data == expected_val, "Data corruption detected after expansion");
+    }
+
+    // Delete an entry and verify delete
     TEST_ASSERT(BRL_Delete(arch, 100) == BRL_OK, "Failed to delete slot");
-
-    // 17th write should now succeed by taking the tombstone slot
-    TEST_ASSERT(BRL_Write(arch, 9999, &val, 1) == BRL_OK, "Failed to reuse tombstone slot");
+    TEST_ASSERT(arch->header->file_count == 99, "File count mismatch after delete");
 
     BRL_Close(arch);
     return true;
@@ -1076,7 +1086,7 @@ int main() {
     int failed_tests = 0;
 
     RUN_TEST(Test_EdgeCases);
-    RUN_TEST(Test_SlotExhaustion);
+    RUN_TEST(Test_SlotExpansion);
     RUN_TEST(Test_FragmentationAndRecycling);
     RUN_TEST(Test_FuzzingAndCorruption);
     RUN_TEST(Test_DifferentialStress);

@@ -197,7 +197,46 @@ def cmd_read(args: argparse.Namespace) -> None:
 
 def cmd_write(args: argparse.Namespace) -> None:
     filepath = get_archive_path(args)
-    key = parse_key(args.name or args.text_key)
+    key_input = args.name or args.text_key
+
+    # Directory Batch Mode
+    if args.directory:
+        dir_path = os.path.abspath(args.directory)
+        if not os.path.isdir(dir_path):
+            raise ValueError(f"Directory not found: '{args.directory}'")
+
+        prefix = str(parse_key(key_input)).strip("/\\") if key_input else ""
+        written_count = 0
+        total_bytes = 0
+
+        with Archive(filepath) as arc:
+            for root, _, files in os.walk(dir_path):
+                for file in files:
+                    full_path = os.path.join(root, file)
+                    rel_path = os.path.relpath(full_path, start=dir_path)
+                    
+                    entry_key = rel_path.replace(os.sep, "/")
+                    if prefix:
+                        entry_key = f"{prefix}/{entry_key}"
+
+                    with open(full_path, "rb") as f:
+                        payload = f.read()
+
+                    arc.write(entry_key, payload, compress=False)
+                    written_count += 1
+                    total_bytes += len(payload)
+
+        console.print(
+            f"[green]✔[/green] Recursively wrote [bold]{written_count}[/bold] file(s) "
+            f"([bold]{format_bytes(total_bytes)}[/bold]) from '[bold cyan]{args.directory}[/bold cyan]'"
+        )
+        return
+
+    # Single File
+    if not key_input:
+        raise ValueError("Must specify target key name (-n/--name or -k/--key) when writing individual payloads.")
+
+    key = parse_key(key_input)
 
     if args.write_file:
         with open(args.write_file, "rb") as f:
@@ -207,7 +246,7 @@ def cmd_write(args: argparse.Namespace) -> None:
     elif args.bytes is not None:
         payload = parse_bytes_input(args.bytes)
     else:
-        raise ValueError("Must specify source content via -f/--data-file, -t/--text, or -b/--bytes")
+        raise ValueError("Must specify source content via -f/--data-file, -t/--text, -b/--bytes, or -d/--directory")
 
     with Archive(filepath) as arc:
         arc.write(key, payload, compress=False)
@@ -321,7 +360,7 @@ def main():
     p_create = subparsers.add_parser("create", help="Create a new empty Barrel archive")
     add_archive_arg(p_create, flag_aliases=("-f", "--file"))
     p_create.add_argument("-i", "--hints", type=int, default=0, help="Hints mask (default: 0)")
-    p_create.add_argument("-c", "--init-cap", type=parse_size, default=256, help="Initial index capacity slots (default: 256)")
+    p_create.add_argument("-c", "--init-cap", type=parse_size, default=256, help="Initial index capacity slots (default: 256, auto-expands as needed)")
     p_create.add_argument("-s", "--max-cap", type=parse_size, default=1 << 30, help="Max virtual capacity (e.g., 256M, 1G, 512MiB) (default: 1 GiB)")
     p_create.set_defaults(func=cmd_create)
 
@@ -335,16 +374,18 @@ def main():
     p_read.set_defaults(func=cmd_read)
 
     # write
-    p_write = subparsers.add_parser("write", help="Write data entry to archive")
+    p_write = subparsers.add_parser("write", help="Write data entry or directory to archive")
     add_archive_arg(p_write)
-    write_key_group = p_write.add_mutually_exclusive_group(required=True)
-    write_key_group.add_argument("-n", "--name", help="Target key name or numeric hash")
-    write_key_group.add_argument("-k", "--key", dest="text_key", help="Target key name (alias for -n)")
+    
+    write_key_group = p_write.add_mutually_exclusive_group(required=False)
+    write_key_group.add_argument("-n", "--name", help="Target key name or path prefix")
+    write_key_group.add_argument("-k", "--key", dest="text_key", help="Target key name or path prefix (alias for -n)")
 
     data_group = p_write.add_mutually_exclusive_group(required=True)
     data_group.add_argument("-f", "--data-file", dest="write_file", help="Write data from input file path")
     data_group.add_argument("-t", "--text", help="Write UTF-8 text string")
     data_group.add_argument("-b", "--bytes", help="Write raw bytes ('0xAA0xBB', '0xAA,0xBB', '\\xAA\\xBB')")
+    data_group.add_argument("-d", "--directory", help="Recursively write entire directory contents into archive")
     p_write.set_defaults(func=cmd_write)
 
     # resize

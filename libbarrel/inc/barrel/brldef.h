@@ -124,6 +124,11 @@ typedef struct BRL_CacheNode {
     struct BRL_CacheNode* next;
 } BRL_CacheNode;
 
+typedef struct {
+    uint64_t      hash;
+    BRL_EntryMeta meta;
+} BRL_TempSlot;
+
 typedef struct BRL_DataLRU {
     BRL_CacheNode** hash_table;
     uint32_t        capacity; 
