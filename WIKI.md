@@ -8,28 +8,34 @@ This document explains how Barrel works and how to use it correctly.
 
 Barrel is a high-performance, single file binary storage engine designed for ultra fast zero copy reads, low-overhead writes, and flexible data compression.
 
-Every Barrel archive starts with a fixed 64-byte disk header (`BRL_DiskHeader`).
+Every Barrel archive starts with a fixed 72-byte disk header (`BRL_DiskHeader`).
 
 ```
 +-----------------------------------------------------------------------+
-| Disk Header (64 Bytes)                                                |
-| - Signature ("AE") & Version                                          |
-| - File count, Virtual Capacity, High Water Mark                       |
-| - Reader Hints (64-bit Bitfield)                                      |
+| Disk Header (72 Bytes)                                                |
+| - Signature ("AE") & Version (0x0100)                                 |
+| - Header flags, File count, Virtual Capacity, High Water Mark         |
+| - Index offset (0x48), Index capacity, Packed size, Hints, Variant    |
++-----------------------------------------------------------------------+
+| Structure of Arrays (SoA) Index Table                                 |
+| - Hashes Array   [uint64_t      * Index Capacity] (8 bytes/slot)      |
+| - Metadata Array [BRL_EntryMeta * Index Capacity] (40 bytes/slot)     |
 +-----------------------------------------------------------------------+
 | Data Area (Payloads / Blocks)                                         |
 | - Variable-length raw or compressed entries                           |
-| - Segregated free spaces (Recycled slots)                             |
-+-----------------------------------------------------------------------+
-| Structure of Arrays (SoA) Index Table                                 |
-| - Hash Array [uint64_t * Capacity]                                    |
-| - Metadata Array [BRL_EntryMeta * Capacity]                           |
+| - Segregated free spaces / orphan holes (recycled slots)              |
 +-----------------------------------------------------------------------+
 ```
 
-Hints are used to instruct other software how to handle entries. Since entries might be compressed, encrypted or encoded, software can read the reader hints field (check `HINTS.md`) to understand how to process the provided data. This heavily reduces the amount of guess work a program might do to display or handle an entry.
+### Capacities & Dynamic Growth
 
-Every Barrel file is created with a predefined virtual capacity (how many bytes can an archive hold). This size can be expanded or shrunk via `BRL_ResizeOffline`. As the name suggests, resizing can only be done when an archive is not memory mapped. However it's not recommended because **it might cause data loss or corruption**. 
+Barrel distinguishes between two key capacities:
+1. **Virtual Capacity (`virtual_capacity`)**: The total virtual address space reserved for the archive data on disk. If writing new entries exceeds this boundary, Barrel automatically expands the virtual capacity and remaps the file. Offline expansion/shrink is also supported via `BRL_ResizeOffline`.
+2. **Index Capacity (`index_capacity`)**: The number of slots available in the Structure of Arrays open-addressing hash table. 
+   - **Automatic Dynamic Expansion**: Barrel automatically grows the index capacity when the table load factor reaches $\ge 75\%$ or when all open slots are occupied. When expanding, Barrel automatically doubles the slot count ($16 \to 32 \to 64 \to \dots$), shifts data payloads forward, updates entry and free-hole offsets, and rehashes active entries.
+   - **Zero Setup Headaches**: You can start an archive with a small default (e.g. 256 slots) and write thousands of files without running out of slots. If you know you are archiving a large number of files upfront, specifying a larger initial capacity (e.g., `-c 65536`) avoids intermediate rehash passes.
+
+Hints are used to instruct other software how to handle entries. Since entries might be compressed, encrypted or encoded, software can read the reader hints field (check `HINTS.md`) to understand how to process the provided data. This heavily reduces the amount of guess work a program might do to display or handle an entry.
 
 Barrel also supports punch hole writing, meaning the underlying OS file system **(if supported)** dynamically allocates physical blocks only when data is actively written to a slot, silently discarding unused ranges back to the disk.
 
@@ -342,7 +348,7 @@ BRL_Create(
 );
 ```
 
-`initial_index_capacity` can often be set to `BRL_DEF_INITIAL_IDX_CAPACITY_CAP`.
+`initial_index_capacity` sets the starting number of index slots (must be a power of 2, or 0 to use `BRL_DEF_INITIAL_IDX_CAPACITY_CAP`). Note that Barrel will automatically expand this capacity as files are added, but choosing an appropriate initial size upfront avoids runtime rehashing passes.
 
 Example:
 ```c
@@ -350,7 +356,7 @@ Example:
 #include <stdio.h>
 
 int main(void) {
-    // Reserve space for 1,024 entries and up to 1 GB virtual capacity
+    // Reserve initial space for 256 entries and up to 1 GB virtual capacity
     BRL_Error err = BRL_Create("data.brl", 0, BRL_DEF_INITIAL_IDX_CAPACITY_CAP, 1024 * 1024 * 1024ULL);
     
     if (err != BRL_OK) {
