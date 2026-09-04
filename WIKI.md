@@ -794,6 +794,11 @@ BRL_ResizeOffline(
 `BRL_ResizeOffline` will return `BRL_RESIZE_SIZE_TOO_SMALL` if the specified capacity is too small or `BRL_RESIZE_DATA_TRUNCATION` if the specified capacity will cause the archive to loose data. 
 
 ### Packing an Unpacking
+
+**IMPORTANT: Barrel DOES NOT guarantee that packing and unpacking won't alter the file structure. Packing DOES NOT alter the entries data in any way, 
+but it might (and probably will) not produce an exact copy of the original file. If your Barrel file needs to be identical to the original, DO NOT PACK IT!
+If sharing is also required, and the file cannot be shared as is due to it's size, consider compressing it using another algorithm.** 
+
 Packing is essential to avoid sharing an archive thats 90% inflated by null bytes. To do this, simply call the `BRL_Pack` function.
 
 Signature:
