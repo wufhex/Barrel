@@ -9,8 +9,12 @@ BRL_EXTERN_C_START
 #if defined(BRL_WIN) && !defined(BRL_FREESTANDING)
 // BRL_WIN
 
+#ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
+#endif // WIN32_LEAN_AND_MEAN
+#ifndef NOMINMAX
 #define NOMINMAX
+#endif // NOMINMAX
 #include <Windows.h>
 #include <stdlib.h>
 #include <stdint.h>
